@@ -142,8 +142,8 @@ select:focus,input[type=text]:focus,textarea:focus{outline:none;border-color:var
 .bc-actions button:hover{border-color:var(--accent);color:var(--txt)}
 .bc-like.liked{color:var(--accent);border-color:var(--accent)}
 .btn.liked{color:var(--accent);border-color:var(--accent)}
-.buildcard .mini{display:grid;grid-template-columns:repeat(6,1fr);gap:2px;background:#0a1120;padding:6px}
-.buildcard .mini .m{aspect-ratio:3/4;background:#141d33;border-radius:3px;overflow:hidden}
+.buildcard .mini{display:grid;grid-template-columns:repeat(6,1fr);gap:3px;background:#0a1120;padding:8px}
+.buildcard .mini .m{aspect-ratio:3/4;background:#141d33;border-radius:4px;overflow:hidden;border:1px solid rgba(255,255,255,.05)}
 .buildcard .mini .m img{width:100%;height:100%;object-fit:cover}
 .buildcard .bc-body{padding:10px 12px}
 .buildcard .bc-title{font-weight:700;font-size:15px;margin-bottom:2px}
@@ -285,7 +285,7 @@ pre.code{background:#0a1120;border:1px solid var(--line);border-radius:8px;paddi
       </div>
     </div>
     <p class="dhint">Saved in this browser. Use "Share Link" or "Export" on a build to share it with others, or publish it to the Community.</p>
-    <div class="grid" id="myBuildsGrid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))"></div>
+    <div class="grid" id="myBuildsGrid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))"></div>
   </div>
 </div>
 
@@ -301,7 +301,7 @@ pre.code{background:#0a1120;border:1px solid var(--line);border-radius:8px;paddi
       <div><label>Search builds</label><input type="text" id="communitySearch" placeholder="Title, author, archetype..."/></div>
       <div><label>Sort by</label><select id="communitySort"><option value="new">Newest</option><option value="likes">Most liked</option><option value="atk">Highest Attack</option><option value="hp">Highest HP</option></select></div>
     </div>
-    <div class="grid" id="communityGrid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))"></div>
+    <div class="grid" id="communityGrid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))"></div>
   </div>
 </div>
 
@@ -676,15 +676,16 @@ document.getElementById('importFile').onchange=(e)=>{const f=e.target.files[0];i
 /* ---------- View a build (read-only) ---------- */
 function openViewBuild(b,source){
   const brd=buildToBoard(b);const st=buildStats(b);const hnd=buildToHand(b);const hero=buildToHero(b);const relics=buildToRelics(b);
-  const boardHTML='<div class="board">'+brd.map((s,i)=>s?'<div class="slot filled"><span class="num">#'+(i+1)+'</span><img src="'+s.image+'"/><div class="sstats"><span class="stat atk">'+s.attack+'</span><span class="stat hp">'+s.hp+'</span></div></div>':'<div class="slot"><span class="num">#'+(i+1)+'</span></div>').join('')+'</div>';
-  const handHTML=hnd.length?'<div class="hand-row" style="margin-top:6px">'+hnd.map(c=>'<div class="hand-item"><img src="'+c.image+'" alt="'+esc(c.name||'')+'"/><div class="hname">'+esc(c.name||'')+'</div></div>').join('')+'</div>':'';
-  const relicsHTML=relics.length?'<div class="hand-row" style="margin-top:6px">'+relics.map(r=>'<div class="hand-item"><img src="'+r.image+'" alt="'+esc(r.title||'')+'"/><div class="hname">'+esc(r.title||'')+'</div></div>').join('')+'</div>':'';
-  const heroHTML=hero?'<div class="hero-row" style="margin-top:6px"><div class="hero-slot filled"><img src="'+hero.image+'" alt="'+esc(hero.name||'')+'"/></div><div><div class="hero-name">'+esc(hero.name||'')+'</div><div class="hero-meta">'+esc(hero.rarity||'')+(hero.dealer?' · '+esc(hero.dealer):'')+'</div></div></div>':'';
+  const boardHTML='<div class="board">'+brd.map((s,i)=>s?'<div class="slot filled" data-zoom="board:'+i+'"><span class="num">#'+(i+1)+'</span><img src="'+s.image+'"/><div class="sstats"><span class="stat atk">'+s.attack+'</span><span class="stat hp">'+s.hp+'</span></div></div>':'<div class="slot"><span class="num">#'+(i+1)+'</span></div>').join('')+'</div>';
+  const handHTML=hnd.length?'<div class="hand-row" style="margin-top:6px">'+hnd.map((c,i)=>'<div class="hand-item" data-zoom="hand:'+i+'" style="cursor:pointer"><img src="'+c.image+'" alt="'+esc(c.name||'')+'"/><div class="hname">'+esc(c.name||'')+'</div></div>').join('')+'</div>':'';
+  const relicsHTML=relics.length?'<div class="hand-row" style="margin-top:6px">'+relics.map((r,i)=>'<div class="hand-item" data-zoom="relic:'+i+'" style="cursor:pointer"><img src="'+r.image+'" alt="'+esc(r.title||'')+'"/><div class="hname">'+esc(r.title||'')+'</div></div>').join('')+'</div>':'';
+  const heroHTML=hero?'<div class="hero-row" style="margin-top:6px;cursor:pointer" data-zoom="hero:0"><div class="hero-slot filled"><img src="'+hero.image+'" alt="'+esc(hero.name||'')+'"/></div><div><div class="hero-name">'+esc(hero.name||'')+'</div><div class="hero-meta">'+esc(hero.rarity||'')+(hero.dealer?' · '+esc(hero.dealer):'')+'</div></div></div>':'';
   const details=brd.map((s,i)=>({s,i})).filter(x=>x.s).map(({s,i})=>detailRowHTML(s,i)).join('');
   const facStr=Object.entries(st.facs).map(([f,n])=>f+' ×'+n).join(', ');
   const guide=b.guide&&b.guide.trim()?'<div class="guide-content">'+sanitizeGuideHTML(b.guide)+'</div>':'<p class="dhint">No guide was written for this build.</p>';
   let html='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap"><div><h3 style="margin:0 0 2px">'+esc(b.title)+'</h3><div class="bc-meta">by '+esc(b.author||'Anonymous')+(b.archetype?' · '+esc(b.archetype):'')+'</div></div><button class="btn sm" onclick="document.getElementById(\'viewModal\').classList.remove(\'open\')">Close</button></div>';
   html+='<div class="summary" style="margin:10px 0">Total Attack: <b>'+st.atk+'</b> · Total HP: <b>'+st.hp+'</b> · Factions: <b>'+esc(facStr||'—')+'</b></div>';
+  html+='<p class="dhint" style="margin:0 0 8px">Tip: click any card, hero, or relic below to view it full size.</p>';
   if(heroHTML)html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:1px;margin:0 0 6px">&#128081; Hero</h3>'+heroHTML;
   html+=boardHTML;
   if(handHTML)html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:1px;margin:14px 0 6px">&#9995; Held in Hand</h3>'+handHTML;
@@ -694,6 +695,13 @@ function openViewBuild(b,source){
   html+='<div class="details">'+(details?'<h3>Card breakdown</h3>'+details:'')+'</div>';
   document.getElementById('viewBody').innerHTML=html;
   document.getElementById('viewModal').classList.add('open');
+  document.getElementById('viewBody').querySelectorAll('[data-zoom]').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const [kind,idx]=el.dataset.zoom.split(':');const i=parseInt(idx,10);
+      const item=kind==='board'?brd[i]:kind==='hand'?hnd[i]:kind==='relic'?relics[i]:hero;
+      if(item)showCardModal(item);
+    });
+  });
   document.getElementById('vLoad').onclick=()=>{state.board=brd.map(s=>s?{...s}:null);state.hand=buildToHand(b);state.hero=hero;state.relics=relics;renderBoard();renderHand();renderHero();renderRelics();document.getElementById('viewModal').classList.remove('open');document.querySelector('.topnav button[data-view=builder]').click();toast('Loaded into Builder');};
   document.getElementById('vShare').onclick=()=>{const url=location.origin+location.pathname+'#build='+encodeBuild(b);navigator.clipboard.writeText(url).then(()=>toast('Share link copied'));};
   document.getElementById('vExport').onclick=()=>{const blob=new Blob([JSON.stringify(b,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(b.title||'build').replace(/[^a-z0-9]+/gi,'_')+'.json';a.click();};
