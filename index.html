@@ -130,6 +130,13 @@ select:focus,input[type=text]:focus,textarea:focus{outline:none;border-color:var
 .hand-item .hname{font-size:9.5px;text-align:center;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hand-item .rm{position:absolute;top:-6px;right:-6px;background:rgba(200,40,40,.92);color:#fff;border:none;width:20px;height:20px;border-radius:50%;cursor:pointer;font-weight:700;font-size:12px;line-height:1;box-shadow:0 2px 6px rgba(0,0,0,.4)}
 .hand-empty{color:var(--muted);font-size:12px}
+.hero-row{display:flex;gap:16px;align-items:center}
+.hero-slot{width:90px;height:118px;border:2px dashed var(--line);border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
+.hero-slot.filled{border-style:solid;border-color:var(--accent);box-shadow:0 4px 16px rgba(255,180,59,.2)}
+.hero-slot img{width:100%;height:100%;object-fit:cover}
+.hero-slot .ph{color:var(--muted);font-size:26px}
+.hero-name{font-weight:700;font-size:16px}
+.hero-meta{color:var(--muted);font-size:12px;margin-top:3px}
 .bc-actions{display:flex;gap:6px;margin-top:8px}
 .bc-actions button{border:1px solid var(--line);background:var(--panel2);color:var(--muted);border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;transition:all .12s}
 .bc-actions button:hover{border-color:var(--accent);color:var(--txt)}
@@ -210,6 +217,15 @@ pre.code{background:#0a1120;border:1px solid var(--line);border-radius:8px;paddi
     <label><input type="checkbox" id="favChk"/> &#9733; Favorites only</label>
   </aside>
   <main class="main">
+    <div class="board-wrap" id="heroWrap">
+      <div class="board-head">
+        <span class="bt">&#128081; Your Hero</span>
+        <div class="board-actions">
+          <button class="btn sm" id="clearHeroBtn">Clear Hero</button>
+        </div>
+      </div>
+      <div id="heroSlot"></div>
+    </div>
     <div class="board-wrap">
       <div class="board-head">
         <span class="bt">&#127942; Your Final Board <span class="kw" id="boardCount">0 / 6</span></span>
@@ -235,6 +251,16 @@ pre.code{background:#0a1120;border:1px solid var(--line);border-radius:8px;paddi
       </div>
       <p class="dhint" style="margin:0 0 10px">Cards some dealers can pull from your hand mid combat, for example on death or when taking damage. Click the &#9995; on any card below to add it here.</p>
       <div class="hand-row" id="handRow"></div>
+    </div>
+    <div class="board-wrap" id="relicsWrap">
+      <div class="board-head">
+        <span class="bt">&#128142; Your Relics <span class="kw" id="relicsCount">0 relics</span></span>
+        <div class="board-actions">
+          <button class="btn sm" id="clearRelicsBtn">Clear Relics</button>
+        </div>
+      </div>
+      <p class="dhint" style="margin:0 0 10px">No fixed limit, since relic slots depend on how long the match runs. Click a relic under the Relics tab below to add it here.</p>
+      <div class="hand-row" id="relicsRow"></div>
     </div>
     <div class="tabs">
       <button data-tab="cards" class="active">Units / Cards</button>
@@ -340,7 +366,7 @@ updateHeaderHeight();
 window.addEventListener('resize',updateHeaderHeight);
 window.addEventListener('load',updateHeaderHeight);
 
-let state={tab:'cards',dealer:'',tiers:new Set(),rarities:new Set(),kw:'',search:'',gold:false,favOnly:false,board:[null,null,null,null,null,null],hand:[],shown:0};
+let state={tab:'cards',dealer:'',tiers:new Set(),rarities:new Set(),kw:'',search:'',gold:false,favOnly:false,board:[null,null,null,null,null,null],hand:[],hero:null,relics:[],shown:0};
 const RARITIES=['COMMON','RARE','EPIC','LEGENDARY'];const PAGE=120;
 const LS_FILTERS='arcane_filters_v1';
 const LS_FAV='arcane_favorites_v1';
@@ -428,6 +454,8 @@ async function tryLoadLiveData(){
     if(typeof applyHashState==='function'&&applyHashState())/* re-resolve any ids that only exist in the live data */;
     if(typeof renderBoard==='function')renderBoard();
     if(typeof renderHand==='function')renderHand();
+    if(typeof renderHero==='function')renderHero();
+    if(typeof renderRelics==='function')renderRelics();
     console.info('Loaded live card data from Supabase ('+mappedCards.length+' cards, '+mappedRelics.length+' relics).');
   }catch(e){
     console.warn('Live data refresh skipped, using the bundled card data instead.',e);
@@ -495,7 +523,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.que
 document.getElementById('loadMore').onclick=()=>appendCards(currentList());
 function baseIdOf(id){const m=String(id).match(/^(.*)_(\d+)$/);return m?m[1]:id;}
 function currentList(){let list=state.tab==='cards'?DB.cards:state.tab==='heroes'?DB.heroes:DB.relics;list=list.filter(item=>{const name=(item.name||item.title||'').toLowerCase();if(state.search&&!name.includes(state.search))return false;if(state.dealer){const selDealer=DB.dealers.find(d=>d.name===state.dealer);const matchesDealer=item.dealer===state.dealer;const matchesOrphanFaction=!item.dealer&&selDealer&&item.faction===selDealer.faction;if(!matchesDealer&&!matchesOrphanFaction)return false;}if(state.tiers.size&&!state.tiers.has(item.tier))return false;if(state.rarities.size&&(!item.rarity||!state.rarities.has(item.rarity)))return false;if(state.tab==='cards'&&state.kw&&!(item.keywords||[]).includes(state.kw))return false;if(state.tab==='cards'&&state.favOnly){const favs=getFavorites();if(!favs.has(baseIdOf(item.id)))return false;}return true;});if(state.tab==='cards'){const seen=new Set();list=list.filter(item=>{const b=baseIdOf(item.id);if(seen.has(b))return false;seen.add(b);return true;});}return list;}
-function cardEl(item){const el=document.createElement('div');el.className='card';const isCard=state.tab==='cards';const atk=state.gold?item.attackGold:item.attack,hp=state.gold?item.hpGold:item.hp;const label=esc(item.name||item.title||'Card');const baseId=isCard?baseIdOf(item.id):null;const isFav=isCard&&getFavorites().has(baseId);const inHand=isCard&&state.hand.some(h=>h.id===item.id);el.innerHTML=(item.rarity?'<span class="rar '+rc(item.rarity)+'">'+item.rarity+'</span>':'')+(isCard?'<span class="favstar'+(isFav?' active':'')+'" data-role="fav" title="Toggle favorite">&#9733;</span><span class="handadd'+(inHand?' active':'')+'" data-role="hand" title="Add to hand">&#9995;</span>':'')+'<div class="imgbox"><img data-src="'+item.image+'" alt="'+label+'"/>'+(isCard&&atk!=null?'<div class="stats"><span class="stat atk">'+atk+'</span><span class="stat hp">'+hp+'</span></div>':'')+'</div><div class="cinfo"><div class="cname">'+esc(item.name||item.title)+'</div><div class="cmeta"><span>'+esc(item.dealer||item.faction||'')+'</span><span>'+(item.tier?'T'+item.tier:'')+'</span></div></div>';io.observe(el.querySelector('img'));el.setAttribute('role','button');el.setAttribute('aria-label',(isCard?'Add '+label+' to board':'View '+label));el.onclick=()=>{if(isCard)addToBoard(item);else showCardModal(item);};el.oncontextmenu=(e)=>{e.preventDefault();showCardModal(item);};const favEl=el.querySelector('[data-role="fav"]');if(favEl)favEl.onclick=(e)=>{e.stopPropagation();const on=toggleFavorite(baseId);favEl.classList.toggle('active',on);if(state.favOnly&&!on)render();};const handEl=el.querySelector('[data-role="hand"]');if(handEl)handEl.onclick=(e)=>{e.stopPropagation();const idx=state.hand.findIndex(h=>h.id===item.id);if(idx>=0){state.hand.splice(idx,1);handEl.classList.remove('active');}else{state.hand.push({...item});handEl.classList.add('active');}renderHand();saveHash();};return el;}
+function cardEl(item){const el=document.createElement('div');el.className='card';const isCard=state.tab==='cards';const atk=state.gold?item.attackGold:item.attack,hp=state.gold?item.hpGold:item.hp;const label=esc(item.name||item.title||'Card');const baseId=isCard?baseIdOf(item.id):null;const isFav=isCard&&getFavorites().has(baseId);const inHand=isCard&&state.hand.some(h=>h.id===item.id);el.innerHTML=(item.rarity?'<span class="rar '+rc(item.rarity)+'">'+item.rarity+'</span>':'')+(isCard?'<span class="favstar'+(isFav?' active':'')+'" data-role="fav" title="Toggle favorite">&#9733;</span><span class="handadd'+(inHand?' active':'')+'" data-role="hand" title="Add to hand">&#9995;</span>':'')+'<div class="imgbox"><img data-src="'+item.image+'" alt="'+label+'"/>'+(isCard&&atk!=null?'<div class="stats"><span class="stat atk">'+atk+'</span><span class="stat hp">'+hp+'</span></div>':'')+'</div><div class="cinfo"><div class="cname">'+esc(item.name||item.title)+'</div><div class="cmeta"><span>'+esc(item.dealer||item.faction||'')+'</span><span>'+(item.tier?'T'+item.tier:'')+'</span></div></div>';io.observe(el.querySelector('img'));el.setAttribute('role','button');el.setAttribute('aria-label',isCard?'Add '+label+' to board':state.tab==='heroes'?'Choose '+label+' as hero':state.tab==='relics'?'Add '+label+' to relics':'View '+label);el.onclick=()=>{if(isCard)addToBoard(item);else if(state.tab==='heroes')setHero(item);else if(state.tab==='relics')addRelic(item);else showCardModal(item);};el.oncontextmenu=(e)=>{e.preventDefault();showCardModal(item);};const favEl=el.querySelector('[data-role="fav"]');if(favEl)favEl.onclick=(e)=>{e.stopPropagation();const on=toggleFavorite(baseId);favEl.classList.toggle('active',on);if(state.favOnly&&!on)render();};const handEl=el.querySelector('[data-role="hand"]');if(handEl)handEl.onclick=(e)=>{e.stopPropagation();const idx=state.hand.findIndex(h=>h.id===item.id);if(idx>=0){state.hand.splice(idx,1);handEl.classList.remove('active');}else{state.hand.push({...item});handEl.classList.add('active');}renderHand();saveHash();};return el;}
 function appendCards(list){const grid=document.getElementById('grid');const frag=document.createDocumentFragment();const next=list.slice(state.shown,state.shown+PAGE);next.forEach(it=>frag.appendChild(cardEl(it)));grid.appendChild(frag);state.shown+=next.length;document.getElementById('loadMore').style.display=state.shown<list.length?'block':'none';}
 function render(){const list=currentList();document.getElementById('resultCount').textContent=list.length+' results';const grid=document.getElementById('grid');grid.innerHTML='';state.shown=0;if(!list.length){grid.innerHTML='<div class="empty-state"><div class="empty-icon">&#128269;</div><p>No cards match your filters.</p><button class="btn sm" id="clearFiltersBtn">Clear filters</button></div>';document.getElementById('loadMore').style.display='none';const cfb=document.getElementById('clearFiltersBtn');if(cfb)cfb.onclick=resetFilters;return;}appendCards(list);}
 
@@ -512,6 +540,27 @@ function renderHand(){
   [...row.querySelectorAll('.hand-item .rm')].forEach((btn,i)=>btn.onclick=()=>removeFromHand(i));
 }
 document.getElementById('clearHandBtn').onclick=()=>{if(state.hand.length&&!confirm('Clear your hand?'))return;state.hand=[];renderHand();saveHash();};
+
+function setHero(hero){state.hero={...hero};renderHero();saveHash();}
+function clearHero(){state.hero=null;renderHero();saveHash();}
+function renderHero(){
+  const slot=document.getElementById('heroSlot');
+  if(!state.hero){slot.innerHTML='<div class="hero-row"><div class="hero-slot"><span class="ph">+</span></div><p class="dhint" style="margin:0">No hero selected yet. Click a hero under the Heroes tab below to choose one.</p></div>';return;}
+  const h=state.hero;
+  slot.innerHTML='<div class="hero-row"><div class="hero-slot filled"><img src="'+h.image+'" alt="'+esc(h.name||'')+'"/></div><div><div class="hero-name">'+esc(h.name||'')+'</div><div class="hero-meta">'+esc(h.rarity||'')+(h.dealer?' · '+esc(h.dealer):'')+'</div></div></div>';
+}
+document.getElementById('clearHeroBtn').onclick=()=>{if(state.hero&&!confirm('Clear your selected hero?'))return;clearHero();};
+
+function addRelic(relic){state.relics.push({...relic});renderRelics();saveHash();}
+function removeRelic(i){state.relics.splice(i,1);renderRelics();saveHash();}
+function renderRelics(){
+  const row=document.getElementById('relicsRow');
+  document.getElementById('relicsCount').textContent=state.relics.length+(state.relics.length===1?' relic':' relics');
+  if(!state.relics.length){row.innerHTML='<p class="hand-empty">No relics added yet. Click a relic under the Relics tab below to add it here.</p>';return;}
+  row.innerHTML=state.relics.map((r,i)=>'<div class="hand-item"><img src="'+r.image+'" alt="'+esc(r.title||r.name||'')+'" loading="lazy"/><div class="hname">'+esc(r.title||r.name||'')+'</div><button class="rm" title="Remove" aria-label="Remove '+esc(r.title||r.name||'')+' from relics">×</button></div>').join('');
+  [...row.querySelectorAll('.hand-item .rm')].forEach((btn,i)=>btn.onclick=()=>removeRelic(i));
+}
+document.getElementById('clearRelicsBtn').onclick=()=>{if(state.relics.length&&!confirm('Clear all relics?'))return;state.relics=[];renderRelics();saveHash();};
 function renderBoard(){const b=document.getElementById('board');b.innerHTML='';let cnt=0,atkSum=0,hpSum=0;const facs={};state.board.forEach((s,i)=>{const slot=document.createElement('div');slot.className='slot'+(s?' filled':'');if(s){cnt++;const atk=state.gold?s.attackGold:s.attack,hp=state.gold?s.hpGold:s.hp;atkSum+=atk||0;hpSum+=hp||0;facs[s.faction]=(facs[s.faction]||0)+1;const label=esc(s.name||'unit');slot.innerHTML='<span class="num">#'+(i+1)+'</span><img src="'+s.image+'" alt="'+label+'"/><div class="sstats"><span class="stat atk">'+(atk??'-')+'</span><span class="stat hp">'+(hp??'-')+'</span></div><button class="rm" title="Remove" aria-label="Remove '+label+' from board">×</button>';slot.draggable=true;slot.setAttribute('aria-label','Slot '+(i+1)+', '+label+'. Drag to reorder.');slot.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain',String(i));e.dataTransfer.effectAllowed='move';slot.classList.add('dragging');});slot.addEventListener('dragend',()=>slot.classList.remove('dragging'));slot.querySelector('.rm').onclick=(e)=>{e.stopPropagation();removeFromBoard(i);};slot.onclick=()=>{const d=document.getElementById('detail-'+i);if(d)d.scrollIntoView({behavior:'smooth',block:'center'});};}else{slot.innerHTML='<span class="num">#'+(i+1)+'</span><span class="ph">+</span>';slot.setAttribute('aria-label','Empty slot '+(i+1));}slot.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';slot.classList.add('drag-over');});slot.addEventListener('dragleave',()=>slot.classList.remove('drag-over'));slot.addEventListener('drop',e=>{e.preventDefault();slot.classList.remove('drag-over');const from=parseInt(e.dataTransfer.getData('text/plain'),10);if(isNaN(from)||from===i)return;const tmp=state.board[i];state.board[i]=state.board[from];state.board[from]=tmp;renderBoard();});b.appendChild(slot);});document.getElementById('boardCount').textContent=cnt+' / 6';const facStr=Object.entries(facs).map(([f,n])=>f+' ×'+n).join(', ')||'—';document.getElementById('boardSummary').innerHTML='Units: <b>'+cnt+'/6</b> &nbsp;·&nbsp; Total Attack: <b>'+atkSum+'</b> &nbsp;·&nbsp; Total HP: <b>'+hpSum+'</b> &nbsp;·&nbsp; Factions: <b>'+esc(facStr)+'</b>'+(state.gold?' &nbsp;(GOLDEN)':'');const kwCount={};state.board.forEach(s=>{if(!s)return;const uniq=new Set(s.keywords||[]);uniq.forEach(k=>{kwCount[k]=(kwCount[k]||0)+1;});});const synergyEntries=Object.entries(kwCount).filter(([k,n])=>n>=2).sort((a,b)=>b[1]-a[1]);const synEl=document.getElementById('boardSynergy');if(synEl){synEl.innerHTML='<b style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-right:8px">Synergy</b>'+(synergyEntries.length?synergyEntries.map(([k,n])=>'<span class="kw" style="border-color:var(--accent)">'+esc(k)+' ×'+n+'</span>').join(''):'<span style="color:var(--muted);font-size:12px">No repeated keywords yet, add units sharing a keyword to build synergy.</span>');}renderDetails();saveHash();}
 function detailRowHTML(s,i){const kwLines=(s.keywords||[]).map(k=>{const def=kwDef(k);return '<div class="line"><span class="k">'+esc(k)+'</span>'+(def?' — <span>'+esc(def)+'</span>':'')+'</div>';}).join('');return '<div class="detail-row" id="detail-'+i+'"><div class="dimg"><img src="'+s.image+'" alt="'+esc(s.name||'unit')+'" loading="lazy"/></div><div class="dbody"><div class="dname"><span class="dpos">Slot #'+(i+1)+'</span>'+esc(s.name)+' <span class="kw '+rc(s.rarity)+'">'+s.rarity+'</span></div><div class="dmeta"><span class="dstat atk">'+s.attack+' ATK</span><span class="dstat hp">'+s.hp+' HP</span><span class="dstat gold">Golden '+s.attackGold+' / '+s.hpGold+'</span><span class="kw">'+esc(s.dealer)+'</span><span class="kw">'+esc(s.faction)+'</span><span class="kw">Tier '+s.tier+'</span></div>'+(kwLines?'<div class="kwdef">'+kwLines+'</div>':'<div class="dhint">No keywords — a plain unit.</div>')+'<div class="dhint">Full ability text is shown on the card art at left.</div></div></div>';}
 function renderDetails(){const d=document.getElementById('details');const filled=state.board.map((s,i)=>({s,i})).filter(x=>x.s);if(!filled.length){d.innerHTML='<h3>Board Details</h3><p class="dhint">Click any unit card below to add it to your board. Each unit\'s full card art and ability breakdown appears here.</p>';return;}d.innerHTML='<h3>Board Details — what each card does</h3>'+filled.map(({s,i})=>detailRowHTML(s,i)).join('');}
@@ -521,13 +570,13 @@ document.getElementById('clearBtn').onclick=()=>{if(state.board.some(Boolean)&&!
 document.getElementById('exportBtn').onclick=()=>{const ta=document.getElementById('exportArea');const lines=state.board.map((s,i)=>{if(!s)return (i+1)+'. (empty)';const kw=(s.keywords||[]).map(k=>{const def=kwDef(k);return def?k+' ('+def+')':k;}).join('; ');return (i+1)+'. '+s.name+' — '+s.faction+' · T'+s.tier+' · '+s.rarity+' · '+(state.gold?s.attackGold+'/'+s.hpGold+' GOLD':s.attack+'/'+s.hp)+(kw?'\n     Keywords: '+kw:'');});ta.value='ARCANE RUSH FINAL BOARD\n\n'+lines.join('\n');ta.style.display=ta.style.display==='block'?'none':'block';};
 
 /* ---------- Share links (board only) ---------- */
-function saveHash(){const boardPart='board='+encodeURIComponent(state.board.map(s=>s?s.id:'').join(','));const handPart=state.hand.length?'&hand='+encodeURIComponent(state.hand.map(h=>h.id).join(',')):'';location.hash=boardPart+handPart;}
+function saveHash(){const boardPart='board='+encodeURIComponent(state.board.map(s=>s?s.id:'').join(','));const handPart=state.hand.length?'&hand='+encodeURIComponent(state.hand.map(h=>h.id).join(',')):'';const heroPart=state.hero?'&hero='+encodeURIComponent(state.hero.name):'';const relicsPart=state.relics.length?'&relics='+encodeURIComponent(state.relics.map(r=>r.id).join(',')):'';location.hash=boardPart+handPart+heroPart+relicsPart;}
 document.getElementById('shareBtn').onclick=()=>{saveHash();navigator.clipboard.writeText(location.href).then(()=>{toast('Board link copied');});};
 function loadBoardFromIds(ids){ids.forEach((id,i)=>{if(id){const c=DB.cards.find(x=>x.id===id);if(c)state.board[i]={...c};}});}
 function loadHandFromIds(ids){ids.forEach(id=>{if(id){const c=DB.cards.find(x=>x.id===id);if(c)state.hand.push({...c});}});}
 
 /* ---------- Build serialization: board + guide into a compact shareable payload ---------- */
-function currentBuildObj(){return {v:1,id:uid(),title:'',author:'',archetype:'',guide:'',cards:state.board.map(s=>s?s.id:null),hand:state.hand.map(h=>h.id),createdAt:Date.now()};}
+function currentBuildObj(){return {v:1,id:uid(),title:'',author:'',archetype:'',guide:'',cards:state.board.map(s=>s?s.id:null),hand:state.hand.map(h=>h.id),hero:state.hero?state.hero.name:null,relics:state.relics.map(r=>r.id),createdAt:Date.now()};}
 function encodeBuild(b){
   // compact: use unicode-safe base64 of JSON
   const json=JSON.stringify(b);
@@ -536,6 +585,8 @@ function encodeBuild(b){
 function decodeBuild(str){ try{ return JSON.parse(decodeURIComponent(escape(atob(str)))); }catch(e){ return null; } }
 function buildToBoard(b){const brd=[null,null,null,null,null,null];(b.cards||[]).forEach((id,i)=>{if(id){const c=DB.cards.find(x=>x.id===id);if(c)brd[i]={...c};}});return brd;}
 function buildToHand(b){return (b.hand||[]).map(id=>{const c=DB.cards.find(x=>x.id===id);return c?{...c}:null;}).filter(Boolean);}
+function buildToHero(b){if(!b.hero)return null;const h=DB.heroes.find(x=>x.name===b.hero);return h?{...h}:null;}
+function buildToRelics(b){return (b.relics||[]).map(id=>{const r=DB.relics.find(x=>x.id===id);return r?{...r}:null;}).filter(Boolean);}
 function buildStats(b){let atk=0,hp=0;const facs={};buildToBoard(b).forEach(s=>{if(s){atk+=s.attack||0;hp+=s.hp||0;facs[s.faction]=(facs[s.faction]||0)+1;}});return {atk,hp,facs};}
 
 /* ---------- Rich text editor ---------- */
@@ -615,31 +666,35 @@ function setMyBuilds(a){localStorage.setItem(LS_BUILDS,JSON.stringify(a));}
 const LS_LIKED='arcane_liked_ids_v1';
 function getLikedIds(){try{return new Set(JSON.parse(localStorage.getItem(LS_LIKED)||'[]'));}catch(e){return new Set();}}
 function setLikedIds(set){localStorage.setItem(LS_LIKED,JSON.stringify([...set]));}
-function quickLoad(b){state.board=buildToBoard(b);state.hand=buildToHand(b);renderBoard();renderHand();const btn=document.querySelector('.topnav button[data-view=builder]');if(btn)btn.click();toast('Loaded into Builder');}
+function quickLoad(b){state.board=buildToBoard(b);state.hand=buildToHand(b);state.hero=buildToHero(b);state.relics=buildToRelics(b);renderBoard();renderHand();renderHero();renderRelics();const btn=document.querySelector('.topnav button[data-view=builder]');if(btn)btn.click();toast('Loaded into Builder');}
 async function likeBuild(b,likeBtn){const likeKey=String(b._rowId||b.id);const liked=getLikedIds();if(liked.has(likeKey)){toast('Already liked');return;}const newCount=(b._likes||0)+1;b._likes=newCount;liked.add(likeKey);setLikedIds(liked);likeBtn.classList.add('liked');const cEl=likeBtn.querySelector('.likecount');if(cEl)cEl.textContent=newCount;if(b._rowId){try{await beLike(b._rowId,newCount);}catch(e){console.warn('Like sync failed, the "likes" column may not exist yet on the builds table.',e);}}else{const demo=getDemo();const idx=demo.findIndex(x=>x.id===b.id);if(idx>=0){demo[idx].likes=newCount;localStorage.setItem(LS_DEMO,JSON.stringify(demo));}}}
-function buildCardEl(b,opts){opts=opts||{};const el=document.createElement('div');el.className='buildcard';const brd=buildToBoard(b);const mini=brd.map(s=>'<div class="m">'+(s?'<img src="'+s.image+'" loading="lazy"/>':'')+'</div>').join('');const st=buildStats(b);const facStr=Object.entries(st.facs).map(([f,n])=>f+'×'+n).join(' ');const showLike=opts.source==='community';const likeKey=String(b._rowId||b.id);const already=getLikedIds().has(likeKey);const handCt=(b.hand||[]).length;el.innerHTML='<div class="mini">'+mini+'</div><div class="bc-body"><div class="bc-title">'+esc(b.title)+'</div><div class="bc-meta">by '+esc(b.author||'Anonymous')+(b.archetype?' · '+esc(b.archetype):'')+'</div><div class="bc-meta" style="margin-top:3px">'+st.atk+' ATK / '+st.hp+' HP · '+esc(facStr)+(handCt?' · &#9995; '+handCt+' in hand':'')+'</div><div class="bc-actions">'+(showLike?'<button class="bc-like'+(already?' liked':'')+'" data-role="like" title="Like this build">&#9733; <span class="likecount">'+(b._likes||0)+'</span></button>':'')+'<button class="bc-load" data-role="load" title="Load into Builder">Load</button></div></div>';el.onclick=(e)=>{if(e.target.closest('[data-role]'))return;openViewBuild(b,opts.source);};const loadBtn=el.querySelector('[data-role="load"]');if(loadBtn)loadBtn.onclick=(e)=>{e.stopPropagation();quickLoad(b);};const likeBtn=el.querySelector('[data-role="like"]');if(likeBtn)likeBtn.onclick=(e)=>{e.stopPropagation();likeBuild(b,likeBtn);};return el;}
+function buildCardEl(b,opts){opts=opts||{};const el=document.createElement('div');el.className='buildcard';const brd=buildToBoard(b);const mini=brd.map(s=>'<div class="m">'+(s?'<img src="'+s.image+'" loading="lazy"/>':'')+'</div>').join('');const st=buildStats(b);const facStr=Object.entries(st.facs).map(([f,n])=>f+'×'+n).join(' ');const showLike=opts.source==='community';const likeKey=String(b._rowId||b.id);const already=getLikedIds().has(likeKey);const handCt=(b.hand||[]).length;const relicCt=(b.relics||[]).length;const heroBit=b.hero?' · &#128081; '+esc(b.hero):'';el.innerHTML='<div class="mini">'+mini+'</div><div class="bc-body"><div class="bc-title">'+esc(b.title)+'</div><div class="bc-meta">by '+esc(b.author||'Anonymous')+(b.archetype?' · '+esc(b.archetype):'')+'</div><div class="bc-meta" style="margin-top:3px">'+st.atk+' ATK / '+st.hp+' HP · '+esc(facStr)+(handCt?' · &#9995; '+handCt+' in hand':'')+(relicCt?' · &#128142; '+relicCt:'')+heroBit+'</div><div class="bc-actions">'+(showLike?'<button class="bc-like'+(already?' liked':'')+'" data-role="like" title="Like this build">&#9733; <span class="likecount">'+(b._likes||0)+'</span></button>':'')+'<button class="bc-load" data-role="load" title="Load into Builder">Load</button></div></div>';el.onclick=(e)=>{if(e.target.closest('[data-role]'))return;openViewBuild(b,opts.source);};const loadBtn=el.querySelector('[data-role="load"]');if(loadBtn)loadBtn.onclick=(e)=>{e.stopPropagation();quickLoad(b);};const likeBtn=el.querySelector('[data-role="like"]');if(likeBtn)likeBtn.onclick=(e)=>{e.stopPropagation();likeBuild(b,likeBtn);};return el;}
 function renderMyBuilds(){const g=document.getElementById('myBuildsGrid');const all=getMyBuilds();if(!all.length){g.innerHTML='<p class="dhint">No saved builds yet. Build a board and click "Save / Publish Build".</p>';return;}g.innerHTML='';all.forEach(b=>g.appendChild(buildCardEl(b,{source:'mine'})));}
 document.getElementById('importBtn').onclick=()=>document.getElementById('importFile').click();
 document.getElementById('importFile').onchange=(e)=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const b=JSON.parse(rd.result);const all=getMyBuilds();all.unshift(b);setMyBuilds(all);renderMyBuilds();toast('Build imported');}catch(err){toast('Invalid file');}};rd.readAsText(f);};
 
 /* ---------- View a build (read-only) ---------- */
 function openViewBuild(b,source){
-  const brd=buildToBoard(b);const st=buildStats(b);const hnd=buildToHand(b);
+  const brd=buildToBoard(b);const st=buildStats(b);const hnd=buildToHand(b);const hero=buildToHero(b);const relics=buildToRelics(b);
   const boardHTML='<div class="board">'+brd.map((s,i)=>s?'<div class="slot filled"><span class="num">#'+(i+1)+'</span><img src="'+s.image+'"/><div class="sstats"><span class="stat atk">'+s.attack+'</span><span class="stat hp">'+s.hp+'</span></div></div>':'<div class="slot"><span class="num">#'+(i+1)+'</span></div>').join('')+'</div>';
   const handHTML=hnd.length?'<div class="hand-row" style="margin-top:6px">'+hnd.map(c=>'<div class="hand-item"><img src="'+c.image+'" alt="'+esc(c.name||'')+'"/><div class="hname">'+esc(c.name||'')+'</div></div>').join('')+'</div>':'';
+  const relicsHTML=relics.length?'<div class="hand-row" style="margin-top:6px">'+relics.map(r=>'<div class="hand-item"><img src="'+r.image+'" alt="'+esc(r.title||'')+'"/><div class="hname">'+esc(r.title||'')+'</div></div>').join('')+'</div>':'';
+  const heroHTML=hero?'<div class="hero-row" style="margin-top:6px"><div class="hero-slot filled"><img src="'+hero.image+'" alt="'+esc(hero.name||'')+'"/></div><div><div class="hero-name">'+esc(hero.name||'')+'</div><div class="hero-meta">'+esc(hero.rarity||'')+(hero.dealer?' · '+esc(hero.dealer):'')+'</div></div></div>':'';
   const details=brd.map((s,i)=>({s,i})).filter(x=>x.s).map(({s,i})=>detailRowHTML(s,i)).join('');
   const facStr=Object.entries(st.facs).map(([f,n])=>f+' ×'+n).join(', ');
   const guide=b.guide&&b.guide.trim()?'<div class="guide-content">'+sanitizeGuideHTML(b.guide)+'</div>':'<p class="dhint">No guide was written for this build.</p>';
   let html='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap"><div><h3 style="margin:0 0 2px">'+esc(b.title)+'</h3><div class="bc-meta">by '+esc(b.author||'Anonymous')+(b.archetype?' · '+esc(b.archetype):'')+'</div></div><button class="btn sm" onclick="document.getElementById(\'viewModal\').classList.remove(\'open\')">Close</button></div>';
   html+='<div class="summary" style="margin:10px 0">Total Attack: <b>'+st.atk+'</b> · Total HP: <b>'+st.hp+'</b> · Factions: <b>'+esc(facStr||'—')+'</b></div>';
+  if(heroHTML)html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:1px;margin:0 0 6px">&#128081; Hero</h3>'+heroHTML;
   html+=boardHTML;
   if(handHTML)html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:1px;margin:14px 0 6px">&#9995; Held in Hand</h3>'+handHTML;
+  if(relicsHTML)html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:1px;margin:14px 0 6px">&#128142; Relics</h3>'+relicsHTML;
   html+='<div class="board-actions" style="margin:12px 0"><button class="btn primary" id="vLoad">Load into Builder</button><button class="btn" id="vShare">Copy Share Link</button><button class="btn" id="vExport">Export .json</button>'+(source==='community'?'<button class="btn" id="vLike">&#9733; Like <span class="likecount">'+(b._likes||0)+'</span></button>':'')+(source==='mine'?'<button class="btn" id="vEdit">Rename / Edit</button><button class="btn" id="vDelete" style="border-color:var(--err);color:var(--err)">Delete</button>':'')+'</div>';
   html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:13px;letter-spacing:1px;margin-top:16px">Guide</h3>'+guide;
   html+='<div class="details">'+(details?'<h3>Card breakdown</h3>'+details:'')+'</div>';
   document.getElementById('viewBody').innerHTML=html;
   document.getElementById('viewModal').classList.add('open');
-  document.getElementById('vLoad').onclick=()=>{state.board=brd.map(s=>s?{...s}:null);state.hand=buildToHand(b);renderBoard();renderHand();document.getElementById('viewModal').classList.remove('open');document.querySelector('.topnav button[data-view=builder]').click();toast('Loaded into Builder');};
+  document.getElementById('vLoad').onclick=()=>{state.board=brd.map(s=>s?{...s}:null);state.hand=buildToHand(b);state.hero=hero;state.relics=relics;renderBoard();renderHand();renderHero();renderRelics();document.getElementById('viewModal').classList.remove('open');document.querySelector('.topnav button[data-view=builder]').click();toast('Loaded into Builder');};
   document.getElementById('vShare').onclick=()=>{const url=location.origin+location.pathname+'#build='+encodeBuild(b);navigator.clipboard.writeText(url).then(()=>toast('Share link copied'));};
   document.getElementById('vExport').onclick=()=>{const blob=new Blob([JSON.stringify(b,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(b.title||'build').replace(/[^a-z0-9]+/gi,'_')+'.json';a.click();};
   const del=document.getElementById('vDelete');if(del)del.onclick=()=>{if(confirm('Delete this saved build?')){setMyBuilds(getMyBuilds().filter(x=>x.id!==b.id));document.getElementById('viewModal').classList.remove('open');renderMyBuilds();toast('Deleted');}};
@@ -701,17 +756,23 @@ document.getElementById('refreshCommunity').onclick=loadCommunity;
 function applyHashState(){
   const om=INITIAL_HASH.match(/board=([^&]*)/);
   const hm=INITIAL_HASH.match(/hand=([^&]*)/);
+  const herom=INITIAL_HASH.match(/hero=([^&]*)/);
+  const relm=INITIAL_HASH.match(/relics=([^&]*)/);
   if(!om)return false;
   state.board=[null,null,null,null,null,null];
   state.hand=[];
+  state.hero=null;
+  state.relics=[];
   loadBoardFromIds(decodeURIComponent(om[1]).split(','));
   if(hm)loadHandFromIds(decodeURIComponent(hm[1]).split(','));
+  if(herom){const name=decodeURIComponent(herom[1]);const h=DB.heroes.find(x=>x.name===name);if(h)state.hero={...h};}
+  if(relm){decodeURIComponent(relm[1]).split(',').forEach(id=>{if(id){const r=DB.relics.find(x=>x.id===id);if(r)state.relics.push({...r});}});}
   return true;
 }
 function boot(){
   const bm=INITIAL_HASH.match(/build=([^&]*)/);
-  if(bm){const b=decodeBuild(bm[1]);if(b){render();renderBoard();renderHand();openViewBuild(b,'shared');}else{render();renderBoard();renderHand();}}
-  else{applyHashState();render();renderBoard();renderHand();}
+  if(bm){const b=decodeBuild(bm[1]);if(b){render();renderBoard();renderHand();renderHero();renderRelics();openViewBuild(b,'shared');}else{render();renderBoard();renderHand();renderHero();renderRelics();}}
+  else{applyHashState();render();renderBoard();renderHand();renderHero();renderRelics();}
 }
 boot();
 
