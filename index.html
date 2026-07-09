@@ -4,6 +4,15 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Arcane Rush — Board Builder & Community</title>
+<meta name="description" content="A free fan made board builder and card database for Arcane Rush. Browse cards, heroes, and relics, build and share boards, and browse the community.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Arcane Rush — Board Builder & Community">
+<meta property="og:description" content="A free fan made board builder and card database for Arcane Rush. Browse cards, heroes, and relics, build and share boards, and browse the community.">
+<meta property="og:image" content="og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Arcane Rush — Board Builder & Community">
+<meta name="twitter:description" content="A free fan made board builder and card database for Arcane Rush. Browse cards, heroes, and relics, build and share boards, and browse the community.">
+<meta name="twitter:image" content="og-image.png">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%230d1428%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2244%22%20font-size%3D%2232%22%20text-anchor%3D%22middle%22%3E%E2%9A%94%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <style>
 :root{--bg:#0a0e1a;--bg2:#0d1428;--panel:#141d33;--panel2:#1a2540;--line:#28365a;--txt:#eef2ff;--muted:#8fa0c7;--accent:#ffb43b;--accent2:#ff8a3d;--common:#6fce6f;--rare:#4f9dff;--epic:#b06bff;--legendary:#ffb43b;--ok:#43c06a;--err:#e05656;--shadow:0 8px 24px rgba(0,0,0,.45);}
@@ -310,6 +319,7 @@ pre.code{background:#0a1120;border:1px solid var(--line);border-radius:8px;paddi
       <div><label>Search builds</label><input type="text" id="communitySearch" placeholder="Title, author, archetype..."/></div>
       <div><label>Sort by</label><select id="communitySort"><option value="new">Newest</option><option value="likes">Most liked</option><option value="atk">Highest Attack</option><option value="hp">Highest HP</option></select></div>
     </div>
+    <label style="margin:2px 0 10px"><input type="checkbox" id="onlyMineChk"/> Show only my posts</label>
     <div class="grid" id="communityGrid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))"></div>
   </div>
 </div>
@@ -639,7 +649,8 @@ function openSaveModal(){
     const link=document.getElementById('saveAsNewLink');if(link)link.onclick=(e)=>{e.preventDefault();loadedBuildMeta=null;communityOwnerRowId=null;communityOwnerAuthed=false;loadedPrefill=null;openSaveModal();};
   } else {
     resetSaveModalUI('new');
-    document.getElementById('fTitle').value='';document.getElementById('fAuthor').value=localStorage.getItem('arcane_author')||'';
+    const googleName=currentUser&&currentUser.user_metadata&&(currentUser.user_metadata.full_name||currentUser.user_metadata.name);
+    document.getElementById('fTitle').value='';document.getElementById('fAuthor').value=googleName||localStorage.getItem('arcane_author')||'';
     document.getElementById('fArchetype').value=guessArchetype();
     document.getElementById('rtEditor').innerHTML='';document.getElementById('saveHint').textContent='';
   }
@@ -711,6 +722,9 @@ document.getElementById('publishBtn').onclick=async()=>{const b=collectBuildFrom
 function getMyBuilds(){try{return JSON.parse(localStorage.getItem(LS_BUILDS)||'[]');}catch(e){return[];}}
 function setMyBuilds(a){localStorage.setItem(LS_BUILDS,JSON.stringify(a));}
 const LS_LIKED='arcane_liked_ids_v1';
+const LS_REPORTED='arcane_reported_ids_v1';
+function getReportedIds(){try{return new Set(JSON.parse(localStorage.getItem(LS_REPORTED)||'[]'));}catch(e){return new Set();}}
+function setReportedIds(set){localStorage.setItem(LS_REPORTED,JSON.stringify([...set]));}
 const LS_OWNER_TOKENS='arcane_owner_tokens_v1';
 function getOwnerTokens(){try{return JSON.parse(localStorage.getItem(LS_OWNER_TOKENS)||'{}');}catch(e){return{};}}
 function getOwnerToken(rowId){return getOwnerTokens()[rowId]||null;}
@@ -742,7 +756,8 @@ function openViewBuild(b,source){
   if(handHTML)html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:1px;margin:14px 0 6px">&#9995; Held in Hand</h3>'+handHTML;
   if(relicsHTML)html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:1px;margin:14px 0 6px">&#128142; Relics</h3>'+relicsHTML;
   const ownsThis=source==='community'&&ownsCommunityBuild(b);
-  html+='<div class="board-actions" style="margin:12px 0"><button class="btn primary" id="vLoad">Load into Builder</button><button class="btn" id="vShare">Copy Share Link</button><button class="btn" id="vExport">Export .json</button>'+(source==='community'?'<button class="btn" id="vLike">&#9733; Like <span class="likecount">'+(b._likes||0)+'</span></button>':'')+(source==='mine'?'<button class="btn" id="vEdit">Rename / Edit</button><button class="btn" id="vDelete" style="border-color:var(--err);color:var(--err)">Delete</button>':'')+(ownsThis?'<button class="btn" id="vDeleteCommunity" style="border-color:var(--err);color:var(--err)">Remove from Community</button>':'')+'</div>';
+  const notOwnedNote=(source==='community'&&!ownsThis)?'<p class="dhint" style="margin:6px 0 0">Only the person who originally published this, or the site owner, can update or remove it.</p>':'';
+  html+='<div class="board-actions" style="margin:12px 0"><button class="btn primary" id="vLoad">Load into Builder</button><button class="btn" id="vShare">Copy Share Link</button><button class="btn" id="vExport">Export .json</button>'+(source==='community'?'<button class="btn" id="vLike">&#9733; Like <span class="likecount">'+(b._likes||0)+'</span></button>':'')+(source==='mine'?'<button class="btn" id="vEdit">Rename / Edit</button><button class="btn" id="vDelete" style="border-color:var(--err);color:var(--err)">Delete</button>':'')+(ownsThis?'<button class="btn" id="vDeleteCommunity" style="border-color:var(--err);color:var(--err)">Remove from Community</button>':'')+(source==='community'&&!ownsThis?'<button class="btn" id="vReport" style="color:var(--muted)">Report</button>':'')+'</div>'+notOwnedNote;
   html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:13px;letter-spacing:1px;margin-top:16px">Guide</h3>'+guide;
   html+='<div class="details">'+(details?'<h3>Card breakdown</h3>'+details:'')+'</div>';
   document.getElementById('viewBody').innerHTML=html;
@@ -773,6 +788,19 @@ function openViewBuild(b,source){
   };
   const edit=document.getElementById('vEdit');if(edit)edit.onclick=()=>{document.getElementById('viewModal').classList.remove('open');openEditModal(b);};
   const like=document.getElementById('vLike');if(like)like.onclick=()=>likeBuild(b,like);
+  const report=document.getElementById('vReport');if(report)report.onclick=async()=>{
+    const reported=getReportedIds();
+    if(reported.has(b._rowId)){toast('Already reported, thanks');return;}
+    const reason=prompt('What\'s wrong with this build? (spam, offensive content, etc.) Optional, but helps.')||'';
+    report.disabled=true;report.textContent='Reporting...';
+    try{
+      const be=getBackend();
+      const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/build_reports',{method:'POST',headers:{...beHeaders(),'Prefer':'return=minimal'},body:JSON.stringify({build_id:b._rowId,reason,reporter:currentUser?(currentUser.email||'signed in user'):'anonymous'})});
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      reported.add(b._rowId);setReportedIds(reported);
+      report.textContent='Reported';toast('Thanks, this has been reported');
+    }catch(e){report.disabled=false;report.textContent='Report';toast('Could not send report, try again shortly');console.warn('Report failed, the build_reports table may not exist yet.',e);}
+  };
 }
 document.getElementById('viewModal').onclick=e=>{if(e.target.id==='viewModal')e.currentTarget.classList.remove('open');};
 
@@ -841,9 +869,10 @@ function publishLocalDemo(b){const a=getDemo();a.unshift(b);localStorage.setItem
 let communityBuilds=[];
 function renderCommunityGrid(){
   const grid=document.getElementById('communityGrid');
-  const qEl=document.getElementById('communitySearch');const sortEl=document.getElementById('communitySort');
-  const q=(qEl&&qEl.value||'').toLowerCase().trim();const sort=sortEl?sortEl.value:'new';
+  const qEl=document.getElementById('communitySearch');const sortEl=document.getElementById('communitySort');const mineEl=document.getElementById('onlyMineChk');
+  const q=(qEl&&qEl.value||'').toLowerCase().trim();const sort=sortEl?sortEl.value:'new';const onlyMine=mineEl&&mineEl.checked;
   let list=communityBuilds.filter(b=>{if(!q)return true;return (b.title||'').toLowerCase().includes(q)||(b.author||'').toLowerCase().includes(q)||(b.archetype||'').toLowerCase().includes(q);});
+  if(onlyMine)list=list.filter(b=>ownsCommunityBuild(b));
   list=list.slice().sort((x,y)=>{
     if(sort==='likes')return (y._likes||0)-(x._likes||0);
     if(sort==='atk')return buildStats(y).atk-buildStats(x).atk;
@@ -851,11 +880,12 @@ function renderCommunityGrid(){
     return 0;
   });
   grid.innerHTML='';
-  if(!list.length){grid.innerHTML='<p class="dhint">'+(communityBuilds.length?'No builds match your search.':'No community builds yet. Be the first to publish one!')+'</p>';return;}
+  if(!list.length){grid.innerHTML='<p class="dhint">'+(onlyMine?'You haven\'t published any Community builds from this browser or account yet.':communityBuilds.length?'No builds match your search.':'No community builds yet. Be the first to publish one!')+'</p>';return;}
   list.forEach(b=>grid.appendChild(buildCardEl(b,{source:'community'})));
 }
 document.getElementById('communitySearch').oninput=renderCommunityGrid;
 document.getElementById('communitySort').onchange=renderCommunityGrid;
+document.getElementById('onlyMineChk').onchange=renderCommunityGrid;
 async function loadCommunity(){
   const be=getBackend();const dot=document.getElementById('beDot');const status=document.getElementById('beStatus');const grid=document.getElementById('communityGrid');const notice=document.getElementById('communityNotice');
   if(be.url&&be.key){
