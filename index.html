@@ -189,6 +189,7 @@ pre.code{background:#0a1120;border:1px solid var(--line);border-radius:8px;paddi
   .disclaimer-bar{font-size:10px;padding:5px 12px;line-height:1.4}
 }
 </style>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 <body>
 
@@ -196,6 +197,14 @@ pre.code{background:#0a1120;border:1px solid var(--line);border-radius:8px;paddi
   <h1>&#9876; ARCANE RUSH</h1><span class="sub" id="hcounts"></span>
   <button class="btn sm filterToggle" id="filterToggle" aria-expanded="false">&#9776; Filters</button>
   <button class="btn sm" id="whatsNewBtn" style="position:relative">What's New<span id="whatsNewDot" style="display:none;position:absolute;top:-3px;right:-3px;width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--bg2)"></span></button>
+  <div id="authArea" style="display:flex;align-items:center;gap:8px">
+    <button class="btn sm" id="signInBtn">Sign in with Google</button>
+    <div id="signedInBox" style="display:none;align-items:center;gap:6px">
+      <img id="authAvatar" style="width:24px;height:24px;border-radius:50%;display:none"/>
+      <span id="authName" style="font-size:12px;color:var(--muted)"></span>
+      <button class="btn sm" id="signOutBtn">Sign out</button>
+    </div>
+  </div>
   <nav class="topnav">
     <button data-view="builder" class="active">Builder</button>
     <button data-view="mybuilds">My Builds</button>
@@ -567,7 +576,7 @@ function detailRowHTML(s,i){const kwLines=(s.keywords||[]).map(k=>{const def=kwD
 function renderDetails(){const d=document.getElementById('details');const filled=state.board.map((s,i)=>({s,i})).filter(x=>x.s);if(!filled.length){d.innerHTML='<h3>Board Details</h3><p class="dhint">Click any unit card below to add it to your board. Each unit\'s full card art and ability breakdown appears here.</p>';return;}d.innerHTML='<h3>Board Details — what each card does</h3>'+filled.map(({s,i})=>detailRowHTML(s,i)).join('');}
 function showCardModal(item){document.getElementById('mImg').src=item.image;document.getElementById('mImg').alt=esc(item.name||item.title||'Card');const kws=(item.keywords||[]).map(k=>{const def=kwDef(k);return '<div style="margin-top:6px"><span class="kw" style="color:var(--accent)">'+esc(k)+'</span>'+(def?' <span style="font-size:12px;color:var(--muted)">'+esc(def)+'</span>':'')+'</div>';}).join('');let html='<h3>'+esc(item.name||item.title)+'</h3>';if(item.rarity)html+='<span class="kw">'+item.rarity+'</span> ';if(item.tier)html+='<span class="kw">Tier '+item.tier+'</span> ';if(item.dealer)html+='<span class="kw">'+esc(item.dealer)+'</span>';if(item.attack!=null)html+='<p>Attack <b>'+item.attack+'</b> / HP <b>'+item.hp+'</b> &nbsp;(Golden: '+item.attackGold+' / '+item.hpGold+')</p>';if(item.description)html+='<p>'+esc(item.description)+'</p>';if(kws)html+='<div>'+kws+'</div>';if(item.faction)html+='<p style="color:var(--muted);font-size:12px;margin-top:8px">Faction: '+esc(item.faction)+'</p>';document.getElementById('mBody').innerHTML=html;document.getElementById('modal').classList.add('open');}
 document.getElementById('modal').onclick=e=>{if(e.target.id==='modal')e.currentTarget.classList.remove('open');};
-document.getElementById('clearBtn').onclick=()=>{if(state.board.some(Boolean)&&!confirm('Clear all units from your board?'))return;state.board=[null,null,null,null,null,null];loadedBuildMeta=null;communityOwnerRowId=null;loadedPrefill=null;renderBoard();};
+document.getElementById('clearBtn').onclick=()=>{if(state.board.some(Boolean)&&!confirm('Clear all units from your board?'))return;state.board=[null,null,null,null,null,null];loadedBuildMeta=null;communityOwnerRowId=null;communityOwnerAuthed=false;loadedPrefill=null;renderBoard();};
 document.getElementById('exportBtn').onclick=()=>{const ta=document.getElementById('exportArea');const lines=state.board.map((s,i)=>{if(!s)return (i+1)+'. (empty)';const kw=(s.keywords||[]).map(k=>{const def=kwDef(k);return def?k+' ('+def+')':k;}).join('; ');return (i+1)+'. '+s.name+' — '+s.faction+' · T'+s.tier+' · '+s.rarity+' · '+(state.gold?s.attackGold+'/'+s.hpGold+' GOLD':s.attack+'/'+s.hp)+(kw?'\n     Keywords: '+kw:'');});ta.value='ARCANE RUSH FINAL BOARD\n\n'+lines.join('\n');ta.style.display=ta.style.display==='block'?'none':'block';};
 
 /* ---------- Share links (board only) ---------- */
@@ -604,6 +613,8 @@ let saveMode='local';
 let editingBuildOriginal=null;
 let loadedBuildMeta=null;
 let communityOwnerRowId=null;
+let communityOwnerAuthed=false;
+function ownsCommunityBuild(b){if(!b||!b._rowId)return false;if(currentUser&&b._userId&&b._userId===currentUser.id)return true;if(getOwnerToken(b._rowId))return true;return false;}
 let loadedPrefill=null;
 function resetSaveModalUI(mode){
   const title=document.getElementById('saveModalTitle');
@@ -623,7 +634,7 @@ function openSaveModal(){
     document.getElementById('fTitle').value=loadedPrefill?.title||'';document.getElementById('fAuthor').value=loadedPrefill?.author||localStorage.getItem('arcane_author')||'';
     document.getElementById('fArchetype').value=loadedPrefill?.archetype||'';
     document.getElementById('rtEditor').innerHTML=loadedPrefill?.guide||'';document.getElementById('saveHint').textContent='';
-    const link=document.getElementById('saveAsNewLink');if(link)link.onclick=(e)=>{e.preventDefault();loadedBuildMeta=null;communityOwnerRowId=null;loadedPrefill=null;openSaveModal();};
+    const link=document.getElementById('saveAsNewLink');if(link)link.onclick=(e)=>{e.preventDefault();loadedBuildMeta=null;communityOwnerRowId=null;communityOwnerAuthed=false;loadedPrefill=null;openSaveModal();};
   } else {
     resetSaveModalUI('new');
     document.getElementById('fTitle').value='';document.getElementById('fAuthor').value=localStorage.getItem('arcane_author')||'';
@@ -633,7 +644,7 @@ function openSaveModal(){
   document.getElementById('saveModal').classList.add('open');
 }
 function openEditModal(b){
-  loadedBuildMeta=null;communityOwnerRowId=null;
+  loadedBuildMeta=null;communityOwnerRowId=null;communityOwnerAuthed=false;
   editingBuildOriginal={...b};resetSaveModalUI('edit');
   document.getElementById('fTitle').value=b.title||'';document.getElementById('fAuthor').value=b.author||localStorage.getItem('arcane_author')||'';
   document.getElementById('fArchetype').value=b.archetype||'';
@@ -673,7 +684,8 @@ document.getElementById('publishBtn').onclick=async()=>{const b=collectBuildFrom
   if(communityOwnerRowId){
     hint.textContent='Updating your Community post...';
     try{
-      await beUpdateCommunity(communityOwnerRowId,b);
+      if(communityOwnerAuthed)await beUpdateCommunityAuthed(communityOwnerRowId,b);
+      else await beUpdateCommunity(communityOwnerRowId,b);
       const all=getMyBuilds();const idx=all.findIndex(x=>x.id===b.id);if(idx>=0)all[idx]=b;else all.unshift(b);setMyBuilds(all);
       loadedBuildMeta={id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};loadedPrefill={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};
       hint.textContent='Community post updated!';toast('Community post updated');setTimeout(()=>document.getElementById('saveModal').classList.remove('open'),900);
@@ -684,7 +696,7 @@ document.getElementById('publishBtn').onclick=async()=>{const b=collectBuildFrom
   if(!be.url){ // local-demo publish
     publishLocalDemo(b);hint.innerHTML='Backend not connected, so this was published to the <b>local demo Community</b> (visible only in this browser). Build also saved to My Builds.';toast('Published to local demo');return;
   }
-  hint.textContent='Publishing...';try{const newRow=await beInsert(b);if(newRow&&newRow.id)communityOwnerRowId=newRow.id;hint.textContent='Published to Community!';toast('Published to Community');setTimeout(()=>document.getElementById('saveModal').classList.remove('open'),900);}catch(e){hint.innerHTML='<span style="color:var(--err)">Publish failed: '+esc(e.message)+'</span>. Saved to My Builds.';}
+  hint.textContent='Publishing...';try{const newRow=await beInsert(b);if(newRow&&newRow.id){communityOwnerRowId=newRow.id;communityOwnerAuthed=!!currentUser;}hint.textContent='Published to Community!';toast('Published to Community');setTimeout(()=>document.getElementById('saveModal').classList.remove('open'),900);}catch(e){hint.innerHTML='<span style="color:var(--err)">Publish failed: '+esc(e.message)+'</span>. Saved to My Builds.';}
 };
 
 /* ---------- My Builds storage ---------- */
@@ -697,7 +709,7 @@ function getOwnerToken(rowId){return getOwnerTokens()[rowId]||null;}
 function setOwnerToken(rowId,token){const t=getOwnerTokens();t[rowId]=token;localStorage.setItem(LS_OWNER_TOKENS,JSON.stringify(t));}
 function getLikedIds(){try{return new Set(JSON.parse(localStorage.getItem(LS_LIKED)||'[]'));}catch(e){return new Set();}}
 function setLikedIds(set){localStorage.setItem(LS_LIKED,JSON.stringify([...set]));}
-function quickLoad(b,source){state.board=buildToBoard(b);state.hand=buildToHand(b);state.hero=buildToHero(b);state.relics=buildToRelics(b);loadedBuildMeta=source==='mine'?{id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide}:null;communityOwnerRowId=(source==='community'&&b._rowId&&getOwnerToken(b._rowId))?b._rowId:null;loadedPrefill={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};renderBoard();renderHand();renderHero();renderRelics();const btn=document.querySelector('.topnav button[data-view=builder]');if(btn)btn.click();toast(communityOwnerRowId?'Loaded into Builder, saving will update your Community post':source==='mine'?'Loaded into Builder, saving will update this build':'Loaded into Builder');}
+function quickLoad(b,source){state.board=buildToBoard(b);state.hand=buildToHand(b);state.hero=buildToHero(b);state.relics=buildToRelics(b);loadedBuildMeta=source==='mine'?{id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide}:null;const owns=source==='community'&&ownsCommunityBuild(b);communityOwnerRowId=owns?b._rowId:null;communityOwnerAuthed=owns?!!(currentUser&&b._userId&&b._userId===currentUser.id):false;loadedPrefill={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};renderBoard();renderHand();renderHero();renderRelics();const btn=document.querySelector('.topnav button[data-view=builder]');if(btn)btn.click();toast(owns?'Loaded into Builder, saving will update your Community post':source==='mine'?'Loaded into Builder, saving will update this build':'Loaded into Builder');}
 async function likeBuild(b,likeBtn){const likeKey=String(b._rowId||b.id);const liked=getLikedIds();if(liked.has(likeKey)){toast('Already liked');return;}const newCount=(b._likes||0)+1;b._likes=newCount;liked.add(likeKey);setLikedIds(liked);likeBtn.classList.add('liked');const cEl=likeBtn.querySelector('.likecount');if(cEl)cEl.textContent=newCount;if(b._rowId){try{await beLike(b._rowId);}catch(e){console.warn('Like sync failed, the "likes" column or increment_build_likes function may not exist yet.',e);}}else{const demo=getDemo();const idx=demo.findIndex(x=>x.id===b.id);if(idx>=0){demo[idx].likes=newCount;localStorage.setItem(LS_DEMO,JSON.stringify(demo));}}}
 function buildCardEl(b,opts){opts=opts||{};const el=document.createElement('div');el.className='buildcard';const brd=buildToBoard(b);const mini=brd.map(s=>'<div class="m">'+(s?'<img src="'+s.image+'" loading="lazy"/>':'')+'</div>').join('');const st=buildStats(b);const facStr=Object.entries(st.facs).map(([f,n])=>f+'×'+n).join(' ');const showLike=opts.source==='community';const likeKey=String(b._rowId||b.id);const already=getLikedIds().has(likeKey);const handCt=(b.hand||[]).length;const relicCt=(b.relics||[]).length;const heroBit=b.hero?' · &#128081; '+esc(b.hero):'';el.innerHTML='<div class="mini">'+mini+'</div><div class="bc-body"><div class="bc-title">'+esc(b.title)+'</div><div class="bc-meta">by '+esc(b.author||'Anonymous')+(b.archetype?' · '+esc(b.archetype):'')+'</div><div class="bc-meta" style="margin-top:3px">'+st.atk+' ATK / '+st.hp+' HP · '+esc(facStr)+(handCt?' · &#9995; '+handCt+' in hand':'')+(relicCt?' · &#128142; '+relicCt:'')+heroBit+'</div><div class="bc-actions">'+(showLike?'<button class="bc-like'+(already?' liked':'')+'" data-role="like" title="Like this build">&#9733; <span class="likecount">'+(b._likes||0)+'</span></button>':'')+'<button class="bc-load" data-role="load" title="Load into Builder">Load</button></div></div>';el.onclick=(e)=>{if(e.target.closest('[data-role]'))return;openViewBuild(b,opts.source);};const loadBtn=el.querySelector('[data-role="load"]');if(loadBtn)loadBtn.onclick=(e)=>{e.stopPropagation();quickLoad(b,opts.source);};const likeBtn=el.querySelector('[data-role="like"]');if(likeBtn)likeBtn.onclick=(e)=>{e.stopPropagation();likeBuild(b,likeBtn);};return el;}
 function renderMyBuilds(){const g=document.getElementById('myBuildsGrid');const all=getMyBuilds();if(!all.length){g.innerHTML='<p class="dhint">No saved builds yet. Build a board and click "Save / Publish Build".</p>';return;}g.innerHTML='';all.forEach(b=>g.appendChild(buildCardEl(b,{source:'mine'})));}
@@ -733,7 +745,7 @@ function openViewBuild(b,source){
       if(item)showCardModal(item);
     });
   });
-  document.getElementById('vLoad').onclick=()=>{state.board=brd.map(s=>s?{...s}:null);state.hand=buildToHand(b);state.hero=hero;state.relics=relics;loadedBuildMeta=source==='mine'?{id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide}:null;communityOwnerRowId=(source==='community'&&b._rowId&&getOwnerToken(b._rowId))?b._rowId:null;loadedPrefill={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};renderBoard();renderHand();renderHero();renderRelics();document.getElementById('viewModal').classList.remove('open');document.querySelector('.topnav button[data-view=builder]').click();toast(communityOwnerRowId?'Loaded into Builder, saving will update your Community post':source==='mine'?'Loaded into Builder, saving will update this build':'Loaded into Builder');};
+  document.getElementById('vLoad').onclick=()=>{state.board=brd.map(s=>s?{...s}:null);state.hand=buildToHand(b);state.hero=hero;state.relics=relics;loadedBuildMeta=source==='mine'?{id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide}:null;const owns=source==='community'&&ownsCommunityBuild(b);communityOwnerRowId=owns?b._rowId:null;communityOwnerAuthed=owns?!!(currentUser&&b._userId&&b._userId===currentUser.id):false;loadedPrefill={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};renderBoard();renderHand();renderHero();renderRelics();document.getElementById('viewModal').classList.remove('open');document.querySelector('.topnav button[data-view=builder]').click();toast(owns?'Loaded into Builder, saving will update your Community post':source==='mine'?'Loaded into Builder, saving will update this build':'Loaded into Builder');};
   document.getElementById('vShare').onclick=()=>{const url=location.origin+location.pathname+'#build='+encodeBuild(b);navigator.clipboard.writeText(url).then(()=>toast('Share link copied'));};
   document.getElementById('vExport').onclick=()=>{const blob=new Blob([JSON.stringify(b,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(b.title||'build').replace(/[^a-z0-9]+/gi,'_')+'.json';a.click();};
   const del=document.getElementById('vDelete');if(del)del.onclick=()=>{if(confirm('Delete this saved build?')){setMyBuilds(getMyBuilds().filter(x=>x.id!==b.id));document.getElementById('viewModal').classList.remove('open');renderMyBuilds();toast('Deleted');}};
@@ -747,9 +759,53 @@ const DEFAULT_BACKEND={url:'https://qfnarjhekeqtgcntlexh.supabase.co',key:'sb_pu
 function getBackend(){try{const saved=JSON.parse(localStorage.getItem(LS_BE)||'{}');if(saved&&saved.url&&saved.key)return saved;}catch(e){}return DEFAULT_BACKEND;}
 function setBackend(cfg){localStorage.setItem(LS_BE,JSON.stringify(cfg));}
 function beHeaders(){const be=getBackend();return {'apikey':be.key,'Authorization':'Bearer '+be.key,'Content-Type':'application/json'};}
+
+/* ---------- Google sign-in (optional; anonymous publishing still works without it) ---------- */
+let sbClient=null;
+let currentUser=null;
+function initAuthClient(){
+  try{
+    if(typeof supabase==='undefined'||!supabase.createClient){console.warn('Supabase auth library did not load; sign-in unavailable, everything else still works.');return;}
+    const be=getBackend();
+    sbClient=supabase.createClient(be.url,be.key);
+    sbClient.auth.onAuthStateChange((event,session)=>{currentUser=(session&&session.user)||null;renderAuthUI();});
+    sbClient.auth.getSession().then(({data})=>{currentUser=(data&&data.session&&data.session.user)||null;renderAuthUI();}).catch(()=>{});
+  }catch(e){console.warn('Sign-in unavailable, everything else still works.',e);}
+}
+function renderAuthUI(){
+  const signInBtn=document.getElementById('signInBtn');const box=document.getElementById('signedInBox');
+  if(!signInBtn||!box)return;
+  if(currentUser){
+    signInBtn.style.display='none';box.style.display='flex';
+    const meta=currentUser.user_metadata||{};
+    document.getElementById('authName').textContent=meta.full_name||meta.name||currentUser.email||'Signed in';
+    const img=document.getElementById('authAvatar');
+    if(meta.avatar_url){img.src=meta.avatar_url;img.style.display='inline-block';}else{img.style.display='none';}
+  } else {
+    signInBtn.style.display='';box.style.display='none';
+  }
+}
+async function authedHeaders(){
+  const base={'apikey':getBackend().key,'Content-Type':'application/json'};
+  if(sbClient&&currentUser){
+    try{const {data}=await sbClient.auth.getSession();if(data&&data.session)return {...base,'Authorization':'Bearer '+data.session.access_token};}catch(e){}
+  }
+  return {...base,'Authorization':'Bearer '+getBackend().key};
+}
+document.getElementById('signInBtn').onclick=async()=>{
+  if(!sbClient){toast('Sign-in is not set up yet.');return;}
+  try{await sbClient.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}});}
+  catch(e){toast('Could not start sign-in.');}
+};
+document.getElementById('signOutBtn').onclick=async()=>{
+  if(!sbClient)return;
+  await sbClient.auth.signOut();currentUser=null;renderAuthUI();toast('Signed out');
+};
+initAuthClient();
 async function beList(){const be=getBackend();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/builds?select=*&order=created_at.desc&limit=200',{headers:beHeaders()});if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
-async function beInsert(b){const be=getBackend();const row={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide,cards:b.cards,payload:b};const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/builds',{method:'POST',headers:{...beHeaders(),'Prefer':'return=representation'},body:JSON.stringify(row)});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,120));const rows=await r.json();const newRow=rows&&rows[0];if(newRow&&newRow.id){const token=(crypto.randomUUID?crypto.randomUUID():(Date.now()+'-'+Math.random().toString(36).slice(2)));try{const or=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/build_owners',{method:'POST',headers:{...beHeaders(),'Prefer':'return=minimal'},body:JSON.stringify({build_id:newRow.id,owner_token:token})});if(!or.ok)throw new Error('HTTP '+or.status+' '+(await or.text()).slice(0,150));setOwnerToken(newRow.id,token);}catch(e){console.warn('Could not claim ownership token for this post, updating it later will not be available until the ownership SQL has been run.',e);}}return newRow;}
+async function beInsert(b){const be=getBackend();const row={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide,cards:b.cards,payload:b};const headers=await authedHeaders();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/builds',{method:'POST',headers:{...headers,'Prefer':'return=representation'},body:JSON.stringify(row)});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,120));const rows=await r.json();const newRow=rows&&rows[0];if(newRow&&newRow.id){const token=(crypto.randomUUID?crypto.randomUUID():(Date.now()+'-'+Math.random().toString(36).slice(2)));try{const or=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/build_owners',{method:'POST',headers:{...beHeaders(),'Prefer':'return=minimal'},body:JSON.stringify({build_id:newRow.id,owner_token:token})});if(!or.ok)throw new Error('HTTP '+or.status+' '+(await or.text()).slice(0,150));setOwnerToken(newRow.id,token);}catch(e){console.warn('Could not claim ownership token for this post, updating it later will not be available until the ownership SQL has been run.',e);}}return newRow;}
 async function beUpdateCommunity(rowId,b){const token=getOwnerToken(rowId);if(!token)throw new Error('You do not own this community post');const be=getBackend();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/rpc/update_community_build',{method:'POST',headers:{...beHeaders(),'Prefer':'return=representation'},body:JSON.stringify({p_build_id:rowId,p_owner_token:token,p_title:b.title,p_author:b.author,p_archetype:b.archetype,p_guide:b.guide,p_cards:b.cards,p_payload:b})});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,150));const result=await r.json();if(result!==true)throw new Error('Ownership check failed, this is not your post');return true;}
+async function beUpdateCommunityAuthed(rowId,b){const be=getBackend();const headers=await authedHeaders();const row={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide,cards:b.cards,payload:b};const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/builds?id=eq.'+encodeURIComponent(rowId),{method:'PATCH',headers:{...headers,'Prefer':'return=minimal'},body:JSON.stringify(row)});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,150));return true;}
 async function beLike(rowId){const be=getBackend();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/rpc/increment_build_likes',{method:'POST',headers:{...beHeaders(),'Prefer':'return=minimal'},body:JSON.stringify({build_id:rowId})});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,150));return true;}
 
 /* ---------- local demo community ---------- */
@@ -780,7 +836,7 @@ async function loadCommunity(){
   const be=getBackend();const dot=document.getElementById('beDot');const status=document.getElementById('beStatus');const grid=document.getElementById('communityGrid');const notice=document.getElementById('communityNotice');
   if(be.url&&be.key){
     dot.className='status-dot on';status.textContent='Backend: Supabase connected';notice.innerHTML='';grid.innerHTML='<p class="dhint">Loading community builds...</p>';
-    try{const rows=await beList();communityBuilds=rows.map(r=>{const b=r.payload||{title:r.title,author:r.author,archetype:r.archetype,guide:r.guide,cards:r.cards,id:r.id};b._rowId=r.id;b._likes=r.likes||0;return b;});renderCommunityGrid();}
+    try{const rows=await beList();communityBuilds=rows.map(r=>{const b=r.payload||{title:r.title,author:r.author,archetype:r.archetype,guide:r.guide,cards:r.cards,id:r.id};b._rowId=r.id;b._likes=r.likes||0;b._userId=r.user_id||null;return b;});renderCommunityGrid();}
     catch(e){grid.innerHTML='';notice.innerHTML='<div class="notice"><b>Could not reach backend:</b> '+esc(e.message)+'. Check the connection or the Supabase table setup.</div>';}
   } else {
     dot.className='status-dot off';status.textContent='Backend: not connected (local demo)';
