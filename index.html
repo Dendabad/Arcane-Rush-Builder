@@ -310,6 +310,7 @@ pre.code{background:#0a1120;border:1px solid var(--line);border-radius:8px;paddi
 <!-- SAVE MODAL -->
 <div class="modal" id="saveModal"><div class="box wide"><div class="body">
   <h3 id="saveModalTitle">Save / Publish Build</h3>
+  <p class="dhint" id="updateNotice" style="display:none"></p>
   <div class="field-row">
     <div><label>Build title</label><input type="text" id="fTitle" placeholder="e.g. Orc Overwhelm Aggro"/></div>
     <div><label>Your name</label><input type="text" id="fAuthor" placeholder="e.g. ThunkFan99"/></div>
@@ -566,7 +567,7 @@ function detailRowHTML(s,i){const kwLines=(s.keywords||[]).map(k=>{const def=kwD
 function renderDetails(){const d=document.getElementById('details');const filled=state.board.map((s,i)=>({s,i})).filter(x=>x.s);if(!filled.length){d.innerHTML='<h3>Board Details</h3><p class="dhint">Click any unit card below to add it to your board. Each unit\'s full card art and ability breakdown appears here.</p>';return;}d.innerHTML='<h3>Board Details — what each card does</h3>'+filled.map(({s,i})=>detailRowHTML(s,i)).join('');}
 function showCardModal(item){document.getElementById('mImg').src=item.image;document.getElementById('mImg').alt=esc(item.name||item.title||'Card');const kws=(item.keywords||[]).map(k=>{const def=kwDef(k);return '<div style="margin-top:6px"><span class="kw" style="color:var(--accent)">'+esc(k)+'</span>'+(def?' <span style="font-size:12px;color:var(--muted)">'+esc(def)+'</span>':'')+'</div>';}).join('');let html='<h3>'+esc(item.name||item.title)+'</h3>';if(item.rarity)html+='<span class="kw">'+item.rarity+'</span> ';if(item.tier)html+='<span class="kw">Tier '+item.tier+'</span> ';if(item.dealer)html+='<span class="kw">'+esc(item.dealer)+'</span>';if(item.attack!=null)html+='<p>Attack <b>'+item.attack+'</b> / HP <b>'+item.hp+'</b> &nbsp;(Golden: '+item.attackGold+' / '+item.hpGold+')</p>';if(item.description)html+='<p>'+esc(item.description)+'</p>';if(kws)html+='<div>'+kws+'</div>';if(item.faction)html+='<p style="color:var(--muted);font-size:12px;margin-top:8px">Faction: '+esc(item.faction)+'</p>';document.getElementById('mBody').innerHTML=html;document.getElementById('modal').classList.add('open');}
 document.getElementById('modal').onclick=e=>{if(e.target.id==='modal')e.currentTarget.classList.remove('open');};
-document.getElementById('clearBtn').onclick=()=>{if(state.board.some(Boolean)&&!confirm('Clear all units from your board?'))return;state.board=[null,null,null,null,null,null];renderBoard();};
+document.getElementById('clearBtn').onclick=()=>{if(state.board.some(Boolean)&&!confirm('Clear all units from your board?'))return;state.board=[null,null,null,null,null,null];loadedBuildMeta=null;renderBoard();};
 document.getElementById('exportBtn').onclick=()=>{const ta=document.getElementById('exportArea');const lines=state.board.map((s,i)=>{if(!s)return (i+1)+'. (empty)';const kw=(s.keywords||[]).map(k=>{const def=kwDef(k);return def?k+' ('+def+')':k;}).join('; ');return (i+1)+'. '+s.name+' — '+s.faction+' · T'+s.tier+' · '+s.rarity+' · '+(state.gold?s.attackGold+'/'+s.hpGold+' GOLD':s.attack+'/'+s.hp)+(kw?'\n     Keywords: '+kw:'');});ta.value='ARCANE RUSH FINAL BOARD\n\n'+lines.join('\n');ta.style.display=ta.style.display==='block'?'none':'block';};
 
 /* ---------- Share links (board only) ---------- */
@@ -601,22 +602,35 @@ document.querySelectorAll('#rtToolbar button').forEach(btn=>btn.onmousedown=(e)=
 /* ---------- Save / Publish modal ---------- */
 let saveMode='local';
 let editingBuildOriginal=null;
+let loadedBuildMeta=null;
 function resetSaveModalUI(mode){
   const title=document.getElementById('saveModalTitle');
   const localBtn=document.getElementById('saveLocalBtn');
   const pubBtn=document.getElementById('publishBtn');
-  if(mode==='edit'){title.textContent='Edit Build';localBtn.textContent='Save changes';pubBtn.style.display='none';}
-  else{title.textContent='Save / Publish Build';localBtn.textContent='Save to My Builds';pubBtn.style.display='';}
+  const notice=document.getElementById('updateNotice');
+  if(mode==='edit'){title.textContent='Edit Build';localBtn.textContent='Save changes';pubBtn.style.display='none';notice.style.display='none';}
+  else if(mode==='update'){title.textContent='Update Build';localBtn.textContent='Update "'+esc(loadedBuildMeta.title)+'"';pubBtn.style.display='';notice.innerHTML='Updating your existing build with what\'s currently in the builder. <a href="#" id="saveAsNewLink" style="color:var(--rare)">Save as a new build instead</a>';notice.style.display='block';}
+  else{title.textContent='Save / Publish Build';localBtn.textContent='Save to My Builds';pubBtn.style.display='';notice.style.display='none';}
 }
 function openSaveModal(){
   if(state.board.every(s=>!s)){toast('Add at least one card first');return;}
-  editingBuildOriginal=null;resetSaveModalUI('new');
-  document.getElementById('fTitle').value='';document.getElementById('fAuthor').value=localStorage.getItem('arcane_author')||'';
-  document.getElementById('fArchetype').value=guessArchetype();
-  document.getElementById('rtEditor').innerHTML='';document.getElementById('saveHint').textContent='';
+  editingBuildOriginal=null;
+  if(loadedBuildMeta){
+    resetSaveModalUI('update');
+    document.getElementById('fTitle').value=loadedBuildMeta.title||'';document.getElementById('fAuthor').value=loadedBuildMeta.author||localStorage.getItem('arcane_author')||'';
+    document.getElementById('fArchetype').value=loadedBuildMeta.archetype||'';
+    document.getElementById('rtEditor').innerHTML=loadedBuildMeta.guide||'';document.getElementById('saveHint').textContent='';
+    const link=document.getElementById('saveAsNewLink');if(link)link.onclick=(e)=>{e.preventDefault();loadedBuildMeta=null;openSaveModal();};
+  } else {
+    resetSaveModalUI('new');
+    document.getElementById('fTitle').value='';document.getElementById('fAuthor').value=localStorage.getItem('arcane_author')||'';
+    document.getElementById('fArchetype').value=guessArchetype();
+    document.getElementById('rtEditor').innerHTML='';document.getElementById('saveHint').textContent='';
+  }
   document.getElementById('saveModal').classList.add('open');
 }
 function openEditModal(b){
+  loadedBuildMeta=null;
   editingBuildOriginal={...b};resetSaveModalUI('edit');
   document.getElementById('fTitle').value=b.title||'';document.getElementById('fAuthor').value=b.author||localStorage.getItem('arcane_author')||'';
   document.getElementById('fArchetype').value=b.archetype||'';
@@ -650,9 +664,9 @@ function sanitizeGuideHTML(html){
   clean(root);
   return root.innerHTML;
 }
-function collectBuildFromForm(){const b=editingBuildOriginal?{...editingBuildOriginal}:currentBuildObj();b.title=document.getElementById('fTitle').value.trim()||'Untitled Build';b.author=document.getElementById('fAuthor').value.trim()||'Anonymous';b.archetype=document.getElementById('fArchetype').value.trim();b.guide=sanitizeGuideHTML(document.getElementById('rtEditor').innerHTML);localStorage.setItem('arcane_author',b.author);return b;}
-document.getElementById('saveLocalBtn').onclick=()=>{const b=collectBuildFromForm();const all=getMyBuilds();if(editingBuildOriginal){const idx=all.findIndex(x=>x.id===b.id);if(idx>=0)all[idx]=b;else all.unshift(b);setMyBuilds(all);editingBuildOriginal=null;document.getElementById('saveModal').classList.remove('open');toast('Build updated');renderMyBuilds();}else{all.unshift(b);setMyBuilds(all);document.getElementById('saveModal').classList.remove('open');toast('Saved to My Builds');}};
-document.getElementById('publishBtn').onclick=async()=>{const b=collectBuildFromForm();const all=getMyBuilds();all.unshift(b);setMyBuilds(all);const hint=document.getElementById('saveHint');
+function collectBuildFromForm(){const b=editingBuildOriginal?{...editingBuildOriginal}:currentBuildObj();if(!editingBuildOriginal&&loadedBuildMeta)b.id=loadedBuildMeta.id;b.title=document.getElementById('fTitle').value.trim()||'Untitled Build';b.author=document.getElementById('fAuthor').value.trim()||'Anonymous';b.archetype=document.getElementById('fArchetype').value.trim();b.guide=sanitizeGuideHTML(document.getElementById('rtEditor').innerHTML);localStorage.setItem('arcane_author',b.author);return b;}
+document.getElementById('saveLocalBtn').onclick=()=>{const b=collectBuildFromForm();const all=getMyBuilds();if(editingBuildOriginal||loadedBuildMeta){const idx=all.findIndex(x=>x.id===b.id);if(idx>=0)all[idx]=b;else all.unshift(b);setMyBuilds(all);editingBuildOriginal=null;loadedBuildMeta={id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};document.getElementById('saveModal').classList.remove('open');toast('Build updated');renderMyBuilds();}else{all.unshift(b);setMyBuilds(all);loadedBuildMeta={id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};document.getElementById('saveModal').classList.remove('open');toast('Saved to My Builds');renderMyBuilds();}};
+document.getElementById('publishBtn').onclick=async()=>{const b=collectBuildFromForm();const all=getMyBuilds();if(editingBuildOriginal||loadedBuildMeta){const idx=all.findIndex(x=>x.id===b.id);if(idx>=0)all[idx]=b;else all.unshift(b);loadedBuildMeta={id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};}else{all.unshift(b);loadedBuildMeta={id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};}setMyBuilds(all);const hint=document.getElementById('saveHint');
   const be=getBackend();
   if(!be.url){ // local-demo publish
     publishLocalDemo(b);hint.innerHTML='Backend not connected, so this was published to the <b>local demo Community</b> (visible only in this browser). Build also saved to My Builds.';toast('Published to local demo');return;
@@ -666,9 +680,9 @@ function setMyBuilds(a){localStorage.setItem(LS_BUILDS,JSON.stringify(a));}
 const LS_LIKED='arcane_liked_ids_v1';
 function getLikedIds(){try{return new Set(JSON.parse(localStorage.getItem(LS_LIKED)||'[]'));}catch(e){return new Set();}}
 function setLikedIds(set){localStorage.setItem(LS_LIKED,JSON.stringify([...set]));}
-function quickLoad(b){state.board=buildToBoard(b);state.hand=buildToHand(b);state.hero=buildToHero(b);state.relics=buildToRelics(b);renderBoard();renderHand();renderHero();renderRelics();const btn=document.querySelector('.topnav button[data-view=builder]');if(btn)btn.click();toast('Loaded into Builder');}
-async function likeBuild(b,likeBtn){const likeKey=String(b._rowId||b.id);const liked=getLikedIds();if(liked.has(likeKey)){toast('Already liked');return;}const newCount=(b._likes||0)+1;b._likes=newCount;liked.add(likeKey);setLikedIds(liked);likeBtn.classList.add('liked');const cEl=likeBtn.querySelector('.likecount');if(cEl)cEl.textContent=newCount;if(b._rowId){try{await beLike(b._rowId,newCount);}catch(e){console.warn('Like sync failed, the "likes" column may not exist yet on the builds table.',e);}}else{const demo=getDemo();const idx=demo.findIndex(x=>x.id===b.id);if(idx>=0){demo[idx].likes=newCount;localStorage.setItem(LS_DEMO,JSON.stringify(demo));}}}
-function buildCardEl(b,opts){opts=opts||{};const el=document.createElement('div');el.className='buildcard';const brd=buildToBoard(b);const mini=brd.map(s=>'<div class="m">'+(s?'<img src="'+s.image+'" loading="lazy"/>':'')+'</div>').join('');const st=buildStats(b);const facStr=Object.entries(st.facs).map(([f,n])=>f+'×'+n).join(' ');const showLike=opts.source==='community';const likeKey=String(b._rowId||b.id);const already=getLikedIds().has(likeKey);const handCt=(b.hand||[]).length;const relicCt=(b.relics||[]).length;const heroBit=b.hero?' · &#128081; '+esc(b.hero):'';el.innerHTML='<div class="mini">'+mini+'</div><div class="bc-body"><div class="bc-title">'+esc(b.title)+'</div><div class="bc-meta">by '+esc(b.author||'Anonymous')+(b.archetype?' · '+esc(b.archetype):'')+'</div><div class="bc-meta" style="margin-top:3px">'+st.atk+' ATK / '+st.hp+' HP · '+esc(facStr)+(handCt?' · &#9995; '+handCt+' in hand':'')+(relicCt?' · &#128142; '+relicCt:'')+heroBit+'</div><div class="bc-actions">'+(showLike?'<button class="bc-like'+(already?' liked':'')+'" data-role="like" title="Like this build">&#9733; <span class="likecount">'+(b._likes||0)+'</span></button>':'')+'<button class="bc-load" data-role="load" title="Load into Builder">Load</button></div></div>';el.onclick=(e)=>{if(e.target.closest('[data-role]'))return;openViewBuild(b,opts.source);};const loadBtn=el.querySelector('[data-role="load"]');if(loadBtn)loadBtn.onclick=(e)=>{e.stopPropagation();quickLoad(b);};const likeBtn=el.querySelector('[data-role="like"]');if(likeBtn)likeBtn.onclick=(e)=>{e.stopPropagation();likeBuild(b,likeBtn);};return el;}
+function quickLoad(b,source){state.board=buildToBoard(b);state.hand=buildToHand(b);state.hero=buildToHero(b);state.relics=buildToRelics(b);loadedBuildMeta=source==='mine'?{id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide}:null;renderBoard();renderHand();renderHero();renderRelics();const btn=document.querySelector('.topnav button[data-view=builder]');if(btn)btn.click();toast(source==='mine'?'Loaded into Builder, saving will update this build':'Loaded into Builder');}
+async function likeBuild(b,likeBtn){const likeKey=String(b._rowId||b.id);const liked=getLikedIds();if(liked.has(likeKey)){toast('Already liked');return;}const newCount=(b._likes||0)+1;b._likes=newCount;liked.add(likeKey);setLikedIds(liked);likeBtn.classList.add('liked');const cEl=likeBtn.querySelector('.likecount');if(cEl)cEl.textContent=newCount;if(b._rowId){try{await beLike(b._rowId);}catch(e){console.warn('Like sync failed, the "likes" column or increment_build_likes function may not exist yet.',e);}}else{const demo=getDemo();const idx=demo.findIndex(x=>x.id===b.id);if(idx>=0){demo[idx].likes=newCount;localStorage.setItem(LS_DEMO,JSON.stringify(demo));}}}
+function buildCardEl(b,opts){opts=opts||{};const el=document.createElement('div');el.className='buildcard';const brd=buildToBoard(b);const mini=brd.map(s=>'<div class="m">'+(s?'<img src="'+s.image+'" loading="lazy"/>':'')+'</div>').join('');const st=buildStats(b);const facStr=Object.entries(st.facs).map(([f,n])=>f+'×'+n).join(' ');const showLike=opts.source==='community';const likeKey=String(b._rowId||b.id);const already=getLikedIds().has(likeKey);const handCt=(b.hand||[]).length;const relicCt=(b.relics||[]).length;const heroBit=b.hero?' · &#128081; '+esc(b.hero):'';el.innerHTML='<div class="mini">'+mini+'</div><div class="bc-body"><div class="bc-title">'+esc(b.title)+'</div><div class="bc-meta">by '+esc(b.author||'Anonymous')+(b.archetype?' · '+esc(b.archetype):'')+'</div><div class="bc-meta" style="margin-top:3px">'+st.atk+' ATK / '+st.hp+' HP · '+esc(facStr)+(handCt?' · &#9995; '+handCt+' in hand':'')+(relicCt?' · &#128142; '+relicCt:'')+heroBit+'</div><div class="bc-actions">'+(showLike?'<button class="bc-like'+(already?' liked':'')+'" data-role="like" title="Like this build">&#9733; <span class="likecount">'+(b._likes||0)+'</span></button>':'')+'<button class="bc-load" data-role="load" title="Load into Builder">Load</button></div></div>';el.onclick=(e)=>{if(e.target.closest('[data-role]'))return;openViewBuild(b,opts.source);};const loadBtn=el.querySelector('[data-role="load"]');if(loadBtn)loadBtn.onclick=(e)=>{e.stopPropagation();quickLoad(b,opts.source);};const likeBtn=el.querySelector('[data-role="like"]');if(likeBtn)likeBtn.onclick=(e)=>{e.stopPropagation();likeBuild(b,likeBtn);};return el;}
 function renderMyBuilds(){const g=document.getElementById('myBuildsGrid');const all=getMyBuilds();if(!all.length){g.innerHTML='<p class="dhint">No saved builds yet. Build a board and click "Save / Publish Build".</p>';return;}g.innerHTML='';all.forEach(b=>g.appendChild(buildCardEl(b,{source:'mine'})));}
 document.getElementById('importBtn').onclick=()=>document.getElementById('importFile').click();
 document.getElementById('importFile').onchange=(e)=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const b=JSON.parse(rd.result);const all=getMyBuilds();all.unshift(b);setMyBuilds(all);renderMyBuilds();toast('Build imported');}catch(err){toast('Invalid file');}};rd.readAsText(f);};
@@ -702,7 +716,7 @@ function openViewBuild(b,source){
       if(item)showCardModal(item);
     });
   });
-  document.getElementById('vLoad').onclick=()=>{state.board=brd.map(s=>s?{...s}:null);state.hand=buildToHand(b);state.hero=hero;state.relics=relics;renderBoard();renderHand();renderHero();renderRelics();document.getElementById('viewModal').classList.remove('open');document.querySelector('.topnav button[data-view=builder]').click();toast('Loaded into Builder');};
+  document.getElementById('vLoad').onclick=()=>{state.board=brd.map(s=>s?{...s}:null);state.hand=buildToHand(b);state.hero=hero;state.relics=relics;loadedBuildMeta=source==='mine'?{id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide}:null;renderBoard();renderHand();renderHero();renderRelics();document.getElementById('viewModal').classList.remove('open');document.querySelector('.topnav button[data-view=builder]').click();toast(source==='mine'?'Loaded into Builder, saving will update this build':'Loaded into Builder');};
   document.getElementById('vShare').onclick=()=>{const url=location.origin+location.pathname+'#build='+encodeBuild(b);navigator.clipboard.writeText(url).then(()=>toast('Share link copied'));};
   document.getElementById('vExport').onclick=()=>{const blob=new Blob([JSON.stringify(b,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(b.title||'build').replace(/[^a-z0-9]+/gi,'_')+'.json';a.click();};
   const del=document.getElementById('vDelete');if(del)del.onclick=()=>{if(confirm('Delete this saved build?')){setMyBuilds(getMyBuilds().filter(x=>x.id!==b.id));document.getElementById('viewModal').classList.remove('open');renderMyBuilds();toast('Deleted');}};
@@ -718,7 +732,7 @@ function setBackend(cfg){localStorage.setItem(LS_BE,JSON.stringify(cfg));}
 function beHeaders(){const be=getBackend();return {'apikey':be.key,'Authorization':'Bearer '+be.key,'Content-Type':'application/json'};}
 async function beList(){const be=getBackend();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/builds?select=*&order=created_at.desc&limit=200',{headers:beHeaders()});if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 async function beInsert(b){const be=getBackend();const row={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide,cards:b.cards,payload:b};const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/builds',{method:'POST',headers:{...beHeaders(),'Prefer':'return=minimal'},body:JSON.stringify(row)});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,120));return true;}
-async function beLike(rowId,newCount){const be=getBackend();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/builds?id=eq.'+encodeURIComponent(rowId),{method:'PATCH',headers:{...beHeaders(),'Prefer':'return=minimal'},body:JSON.stringify({likes:newCount})});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,150));return true;}
+async function beLike(rowId){const be=getBackend();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/rpc/increment_build_likes',{method:'POST',headers:{...beHeaders(),'Prefer':'return=minimal'},body:JSON.stringify({build_id:rowId})});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,150));return true;}
 
 /* ---------- local demo community ---------- */
 const LS_DEMO='arcane_demo_community_v1';
