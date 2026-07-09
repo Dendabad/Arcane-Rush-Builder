@@ -733,7 +733,8 @@ function openViewBuild(b,source){
   html+=boardHTML;
   if(handHTML)html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:1px;margin:14px 0 6px">&#9995; Held in Hand</h3>'+handHTML;
   if(relicsHTML)html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:1px;margin:14px 0 6px">&#128142; Relics</h3>'+relicsHTML;
-  html+='<div class="board-actions" style="margin:12px 0"><button class="btn primary" id="vLoad">Load into Builder</button><button class="btn" id="vShare">Copy Share Link</button><button class="btn" id="vExport">Export .json</button>'+(source==='community'?'<button class="btn" id="vLike">&#9733; Like <span class="likecount">'+(b._likes||0)+'</span></button>':'')+(source==='mine'?'<button class="btn" id="vEdit">Rename / Edit</button><button class="btn" id="vDelete" style="border-color:var(--err);color:var(--err)">Delete</button>':'')+'</div>';
+  const ownsThis=source==='community'&&ownsCommunityBuild(b);
+  html+='<div class="board-actions" style="margin:12px 0"><button class="btn primary" id="vLoad">Load into Builder</button><button class="btn" id="vShare">Copy Share Link</button><button class="btn" id="vExport">Export .json</button>'+(source==='community'?'<button class="btn" id="vLike">&#9733; Like <span class="likecount">'+(b._likes||0)+'</span></button>':'')+(source==='mine'?'<button class="btn" id="vEdit">Rename / Edit</button><button class="btn" id="vDelete" style="border-color:var(--err);color:var(--err)">Delete</button>':'')+(ownsThis?'<button class="btn" id="vDeleteCommunity" style="border-color:var(--err);color:var(--err)">Remove from Community</button>':'')+'</div>';
   html+='<h3 style="color:var(--muted);text-transform:uppercase;font-size:13px;letter-spacing:1px;margin-top:16px">Guide</h3>'+guide;
   html+='<div class="details">'+(details?'<h3>Card breakdown</h3>'+details:'')+'</div>';
   document.getElementById('viewBody').innerHTML=html;
@@ -749,6 +750,19 @@ function openViewBuild(b,source){
   document.getElementById('vShare').onclick=()=>{const url=location.origin+location.pathname+'#build='+encodeBuild(b);navigator.clipboard.writeText(url).then(()=>toast('Share link copied'));};
   document.getElementById('vExport').onclick=()=>{const blob=new Blob([JSON.stringify(b,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(b.title||'build').replace(/[^a-z0-9]+/gi,'_')+'.json';a.click();};
   const del=document.getElementById('vDelete');if(del)del.onclick=()=>{if(confirm('Delete this saved build?')){setMyBuilds(getMyBuilds().filter(x=>x.id!==b.id));document.getElementById('viewModal').classList.remove('open');renderMyBuilds();toast('Deleted');}};
+  const delCommunity=document.getElementById('vDeleteCommunity');if(delCommunity)delCommunity.onclick=async()=>{
+    if(!confirm('Remove this build from Community? This cannot be undone.'))return;
+    delCommunity.disabled=true;delCommunity.textContent='Removing...';
+    try{
+      const owns=source==='community';
+      const authed=!!(currentUser&&b._userId&&b._userId===currentUser.id);
+      if(authed)await beDeleteCommunityAuthed(b._rowId);
+      else await beDeleteCommunity(b._rowId);
+      document.getElementById('viewModal').classList.remove('open');
+      toast('Removed from Community');
+      loadCommunity();
+    }catch(e){toast('Could not remove: '+e.message);delCommunity.disabled=false;delCommunity.textContent='Remove from Community';}
+  };
   const edit=document.getElementById('vEdit');if(edit)edit.onclick=()=>{document.getElementById('viewModal').classList.remove('open');openEditModal(b);};
   const like=document.getElementById('vLike');if(like)like.onclick=()=>likeBuild(b,like);
 }
@@ -806,6 +820,8 @@ async function beList(){const be=getBackend();const r=await fetch(be.url.replace
 async function beInsert(b){const be=getBackend();const row={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide,cards:b.cards,payload:b};const headers=await authedHeaders();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/builds',{method:'POST',headers:{...headers,'Prefer':'return=representation'},body:JSON.stringify(row)});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,120));const rows=await r.json();const newRow=rows&&rows[0];if(newRow&&newRow.id){const token=(crypto.randomUUID?crypto.randomUUID():(Date.now()+'-'+Math.random().toString(36).slice(2)));try{const or=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/build_owners',{method:'POST',headers:{...beHeaders(),'Prefer':'return=minimal'},body:JSON.stringify({build_id:newRow.id,owner_token:token})});if(!or.ok)throw new Error('HTTP '+or.status+' '+(await or.text()).slice(0,150));setOwnerToken(newRow.id,token);}catch(e){console.warn('Could not claim ownership token for this post, updating it later will not be available until the ownership SQL has been run.',e);}}return newRow;}
 async function beUpdateCommunity(rowId,b){const token=getOwnerToken(rowId);if(!token)throw new Error('You do not own this community post');const be=getBackend();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/rpc/update_community_build',{method:'POST',headers:{...beHeaders(),'Prefer':'return=representation'},body:JSON.stringify({p_build_id:rowId,p_owner_token:token,p_title:b.title,p_author:b.author,p_archetype:b.archetype,p_guide:b.guide,p_cards:b.cards,p_payload:b})});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,150));const result=await r.json();if(result!==true)throw new Error('Ownership check failed, this is not your post');return true;}
 async function beUpdateCommunityAuthed(rowId,b){const be=getBackend();const headers=await authedHeaders();const row={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide,cards:b.cards,payload:b};const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/builds?id=eq.'+encodeURIComponent(rowId),{method:'PATCH',headers:{...headers,'Prefer':'return=minimal'},body:JSON.stringify(row)});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,150));return true;}
+async function beDeleteCommunity(rowId){const token=getOwnerToken(rowId);if(!token)throw new Error('You do not own this community post');const be=getBackend();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/rpc/delete_community_build',{method:'POST',headers:{...beHeaders(),'Prefer':'return=representation'},body:JSON.stringify({p_build_id:rowId,p_owner_token:token})});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,150));const result=await r.json();if(result!==true)throw new Error('Ownership check failed, this is not your post');return true;}
+async function beDeleteCommunityAuthed(rowId){const be=getBackend();const headers=await authedHeaders();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/builds?id=eq.'+encodeURIComponent(rowId),{method:'DELETE',headers:{...headers,'Prefer':'return=minimal'}});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,150));return true;}
 async function beLike(rowId){const be=getBackend();const r=await fetch(be.url.replace(/\/$/,'')+'/rest/v1/rpc/increment_build_likes',{method:'POST',headers:{...beHeaders(),'Prefer':'return=minimal'},body:JSON.stringify({build_id:rowId})});if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,150));return true;}
 
 /* ---------- local demo community ---------- */
