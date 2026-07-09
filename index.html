@@ -624,7 +624,9 @@ function resetSaveModalUI(mode){
   if(mode==='edit'){title.textContent='Edit Build';localBtn.textContent='Save changes';pubBtn.style.display='none';notice.style.display='none';return;}
   if(mode==='update'){title.textContent='Update Build';localBtn.textContent='Update "'+esc((loadedPrefill&&loadedPrefill.title)||'Build')+'"';pubBtn.style.display='';notice.innerHTML='Updating your existing build with what\'s currently in the builder. <a href="#" id="saveAsNewLink" style="color:var(--rare)">Save as a new build instead</a>';notice.style.display='block';}
   else{title.textContent='Save / Publish Build';localBtn.textContent='Save to My Builds';pubBtn.style.display='';notice.style.display='none';}
-  if(communityOwnerRowId){pubBtn.textContent='Update Community Post';}else{pubBtn.textContent='Publish to Community';}
+  if(communityOwnerRowId){pubBtn.textContent='Update Community Post';}
+  else if(!currentUser){pubBtn.textContent='Sign in to Publish';}
+  else{pubBtn.textContent='Publish to Community';}
 }
 function openSaveModal(){
   if(state.board.every(s=>!s)){toast('Add at least one card first');return;}
@@ -690,6 +692,12 @@ document.getElementById('publishBtn').onclick=async()=>{const b=collectBuildFrom
       loadedBuildMeta={id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};loadedPrefill={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};
       hint.textContent='Community post updated!';toast('Community post updated');setTimeout(()=>document.getElementById('saveModal').classList.remove('open'),900);
     }catch(e){hint.innerHTML='<span style="color:var(--err)">Update failed: '+esc(e.message)+'</span>';}
+    return;
+  }
+  if(!currentUser){
+    if(!sbClient){toast('Sign-in is not set up yet.');return;}
+    hint.innerHTML='Sign in with Google to publish to Community, redirecting...';
+    try{await sbClient.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}});}catch(e){toast('Could not start sign-in.');}
     return;
   }
   const all=getMyBuilds();if(editingBuildOriginal||loadedBuildMeta){const idx=all.findIndex(x=>x.id===b.id);if(idx>=0)all[idx]=b;else all.unshift(b);loadedBuildMeta={id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};}else{all.unshift(b);loadedBuildMeta={id:b.id,title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};}loadedPrefill={title:b.title,author:b.author,archetype:b.archetype,guide:b.guide};setMyBuilds(all);
